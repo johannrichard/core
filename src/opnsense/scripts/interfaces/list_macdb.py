@@ -1,7 +1,7 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python3
 
 """
-    Copyright (c) 2016 Ad Schellevis
+    Copyright (c) 2016-2019 Ad Schellevis <ad@opnsense.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -32,12 +32,14 @@
 import os.path
 import sys
 import ujson
-import netaddr.eui.ieee
+import importlib.util
 
 if __name__ == '__main__':
     result=dict()
-    if os.path.isfile(netaddr.eui.ieee.OUI_REGISTRY):
-        for line in open(netaddr.eui.ieee.OUI_REGISTRY).read().split('\n'):
+    oui_registry_file = "%s/eui/oui.txt" % os.path.dirname(importlib.util.find_spec('netaddr').origin)
+    if os.path.isfile(oui_registry_file):
+        for line in open(oui_registry_file, 'rb'):
+            line = line.decode()
             if line.find('(base 16)') > -1:
                 parts=line.split('(base 16)')
                 if len(parts) >= 2:

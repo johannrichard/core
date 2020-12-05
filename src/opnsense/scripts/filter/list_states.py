@@ -1,7 +1,7 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python3
 
 """
-    Copyright (c) 2015 Ad Schellevis
+    Copyright (c) 2015 Ad Schellevis <ad@opnsense.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -28,11 +28,10 @@
     --------------------------------------------------------------------------------------
     list pf states
 """
-import tempfile
 import subprocess
-import os
 import sys
 import ujson
+import argparse
 
 
 def parse_address(addr):
@@ -53,45 +52,59 @@ def parse_address(addr):
     return parse_result
 
 if __name__ == '__main__':
-    result = {'details': []}
-    with tempfile.NamedTemporaryFile() as output_stream:
-        subprocess.call(['/sbin/pfctl', '-s', 'state'], stdout=output_stream, stderr=open(os.devnull, 'wb'))
-        output_stream.seek(0)
-        data = output_stream.read().strip()
-        if data.count('\n') > 2:
-            for line in data.split('\n'):
-                parts = line.split()
-                if len(parts) >= 6:
-                    record = dict()
-                    record['nat_addr'] = None
-                    record['nat_port'] = None
-                    record['iface'] = parts[0]
-                    record['proto'] = parts[1]
-                    record['src_addr'] = parse_address(parts[2])['addr']
-                    record['src_port'] = parse_address(parts[2])['port']
-                    record['ipproto'] = parse_address(parts[2])['ipproto']
+    # parse input arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output', help='output type [json/text]', default='json')
+    parser.add_argument('--filter', help='filter results', default='')
+    parser.add_argument('--limit', help='limit number of results', default='')
+    inputargs = parser.parse_args()
 
-                    if parts[3].find('(') > -1:
-                        # NAT enabled
-                        record['nat_addr'] = parts[3][1:].split(':')[0]
-                        record['nat_port'] = parts[3].split(':')[1][:-1]
+    result = {'details': [], 'total_entries': 0}
+    sp = subprocess.run(['/sbin/pfctl', '-s', 'state'], capture_output=True, text=True)
+    data = sp.stdout.strip()
+    if data.count('\n') > 2:
+        for line in data.split('\n'):
+            parts = line.split()
+            if len(parts) >= 6:
+                # count total number of state table entries
+                result['total_entries'] += 1
+                # apply filter when provided
+                if inputargs.filter != "" and line.lower().find(inputargs.filter) == -1:
+                    continue
+                # limit results
+                if inputargs.limit.isdigit() and len(result['details']) >= int(inputargs.limit):
+                    continue
+                record = dict()
+                record['nat_addr'] = None
+                record['nat_port'] = None
+                record['iface'] = parts[0]
+                record['proto'] = parts[1]
+                record['src_addr'] = parse_address(parts[2])['addr']
+                record['src_port'] = parse_address(parts[2])['port']
+                record['ipproto'] = parse_address(parts[2])['ipproto']
 
-                    record['dst_addr'] = parse_address(parts[-2])['addr']
-                    record['dst_port'] = parse_address(parts[-2])['port']
+                if parts[3].find('(') > -1:
+                    # NAT enabled
+                    record['nat_addr'] = parts[3][1:].split(':')[0]
+                    if parts[3].find(':') > -1:
+                       record['nat_port'] = parts[3].split(':')[1][:-1]
 
-                    if parts[-3] == '->':
-                        record['direction'] = 'out'
-                    else:
-                        record['direction'] = 'in'
+                record['dst_addr'] = parse_address(parts[-2])['addr']
+                record['dst_port'] = parse_address(parts[-2])['port']
 
-                    record['state'] = parts[-1]
+                if parts[-3] == '->':
+                    record['direction'] = 'out'
+                else:
+                    record['direction'] = 'in'
 
-                    result['details'].append(record)
+                record['state'] = parts[-1]
+
+                result['details'].append(record)
 
     result['total'] = len(result['details'])
 
     # handle command line argument (type selection)
-    if len(sys.argv) > 1 and sys.argv[1] == 'json':
+    if inputargs.output == 'json':
         print(ujson.dumps(result))
     else:
         # output plain

@@ -1,40 +1,37 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2008 Shrew Soft Inc.
-    Copyright (C) 2005 Paul Taylor <paultaylor@winn-dixie.com>.
-    Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-    this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2008 Shrew Soft Inc. <mgrooms@shrew.net>
+ * Copyright (C) 2005 Paul Taylor <paultaylor@winn-dixie.com>
+ * Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 
-if (!isset($config['system']['group'])) {
-    $config['system']['group'] = array();
-}
-$a_group = &$config['system']['group'];
+$a_group = &config_read_array('system', 'group');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (isset($a_group[$_GET['groupid']])) {
@@ -68,26 +65,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $id = $_POST['groupid'];
     }
     $pconfig = $_POST;
+    $input_errors = array();
     $act = (isset($pconfig['act']) ? $pconfig['act'] : '');
-    if (isset($id) && $act == "delgroup" && isset($pconfig['groupname']) && $pconfig['groupname'] == $a_group[$id]['name']) {
-        // remove group
+
+    $user = getUserEntry($_SESSION['Username']);
+    $a_user = &config_read_array('system', 'user');
+    if (userHasPrivilege($user, 'user-config-readonly')) {
+        $input_errors[] = gettext('You do not have the permission to perform this action.');
+    } elseif (isset($id) && $act == "delgroup" && isset($pconfig['groupname']) && $pconfig['groupname'] == $a_group[$id]['name']) {
+        $prev_members = !empty($a_group[$id]['member']) ? $a_group[$id]['member'] : array();
         local_group_del($a_group[$id]);
-        $groupdeleted = $a_group[$id]['name'];
         unset($a_group[$id]);
         write_config();
-        // reload page
+        // XXX: signal backend about changed users for the members of this group
+        foreach ($prev_members as $member) {
+            foreach ($a_user as & $user) {
+                if ($user['uid'] == $member) {
+                    configdp_run('auth user changed', [$user['name']]);
+                }
+            }
+        }
         header(url_safe('Location: /system_groupmanager.php'));
         exit;
-    }  elseif (isset($pconfig['save'])) {
-        $input_errors = array();
-
-        /* input validation */
+    } elseif (isset($pconfig['save'])) {
         $reqdfields = explode(" ", "name");
         $reqdfieldsn = array(gettext("Group Name"));
 
         do_input_validation($pconfig, $reqdfields, $reqdfieldsn, $input_errors);
 
-        if (preg_match("/[^a-zA-Z0-9\.\-_ ]/", $pconfig['name'])) {
+        if (preg_match("/[^a-zA-Z0-9\.\-_]/", $pconfig['name'])) {
             $input_errors[] = gettext("The group name contains invalid characters.");
         }
 
@@ -111,11 +117,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 }
             }
         }
+
         if (count($input_errors) == 0) {
             $group = array();
             if (isset($id) && $a_group[$id]) {
                 $group = $a_group[$id];
             }
+            $prev_members = !empty($group['member']) ? $group['member'] : array();
 
             $group['name'] = $pconfig['name'];
             $group['description'] = $pconfig['description'];
@@ -132,18 +140,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 $group['gid'] = $config['system']['nextgid']++;
                 $a_group[] = $group;
             }
+
             local_group_set($group);
 
-            /* Refresh users in this group since their privileges may have changed. */
+            /* Refresh users in this group since their privileges may have changed.
+               XXX: it looks like local_user_set's intend is to only change group assignments, if that's
+                    the case, it should be safe to drop the block below and let configd handle it.
+            */
+
             if (is_array($group['member'])) {
-                $a_user = &$config['system']['user'];
                 foreach ($a_user as & $user) {
                     if (in_array($user['uid'], $group['member'])) {
                         local_user_set($user);
                     }
                 }
             }
+
             write_config();
+            // XXX: signal backend which users have changed.
+            //      core_user_changed_groups() would change local group assignments in that case as well.
+            $new_members = !empty($group['member']) ? $group['member'] : array();
+            $all_members = array_merge($prev_members, $new_members);
+            foreach ($all_members as $member) {
+                if (!in_array($member, $prev_members) || !in_array($member, $new_members)) {
+                    foreach ($a_user as & $user) {
+                        if ($user['uid'] == $member) {
+                            configdp_run('auth user changed', [$user['name']]);
+                        }
+                    }
+                }
+            }
             header(url_safe('Location: /system_groupmanager.php'));
             exit;
         } else {
@@ -161,11 +187,16 @@ legacy_html_escape_form_data($pconfig);
 legacy_html_escape_form_data($a_group);
 
 include("head.inc");
-?>
 
+$main_buttons = array();
+if (!isset($_GET['act'])) {
+    $main_buttons[] = array('label' => gettext('Add'), 'href' => 'system_groupmanager.php?act=new');
+}
+
+?>
 <body>
 <?php include("fbegin.inc"); ?>
-<script type="text/javascript">
+<script>
 $( document ).ready(function() {
     // remove group
     $(".act-del-group").click(function(event){
@@ -213,11 +244,7 @@ $( document ).ready(function() {
 <section class="page-content-main">
   <div class="container-fluid">
     <div class="row">
-<?php
-      if (isset($input_errors) && count($input_errors) > 0) {
-          print_input_errors($input_errors);
-      }
-?>
+      <?php if (isset($input_errors) && count($input_errors)) print_input_errors($input_errors); ?>
       <section class="col-xs-12">
         <div class="tab-content content-box col-xs-12 table-responsive">
 <?php
@@ -244,7 +271,7 @@ $( document ).ready(function() {
                 <td><a id="help_for_desc" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description");?></td>
                 <td>
                   <input name="description" type="text" value="<?=$pconfig['description'];?>" />
-                  <div class="hidden" for="help_for_desc">
+                  <div class="hidden" data-for="help_for_desc">
                     <?=gettext("Group description, for your own information only");?>
                   </div>
                 </td>
@@ -252,7 +279,7 @@ $( document ).ready(function() {
               <tr>
                 <td><a id="help_for_groups" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Group Memberships");?></td>
                 <td>
-                  <table class="table" width="100%" border="0" cellpadding="0" cellspacing="0">
+                  <table class="table" style="width:100%; border:0;">
                     <thead>
                       <tr>
                         <th><?=gettext("Not Member Of"); ?></th>
@@ -280,11 +307,11 @@ $( document ).ready(function() {
                         <td class="text-center">
                           <br />
                           <a id="add_users" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("Add Users"); ?>">
-                              <span class="glyphicon glyphicon-arrow-right"></span>
+                              <span class="fa fa-arrow-right fa-fw"></span>
                           </a>
                           <br /><br />
                           <a id="add_groups" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("Remove Users"); ?>">
-                              <span class="glyphicon glyphicon-arrow-left"></span>
+                              <span class="fa fa-arrow-left fa-fw"></span>
                           </a>
                         </td>
                         <td>
@@ -305,7 +332,7 @@ $( document ).ready(function() {
                       </td>
                     </tr>
                   </table>
-                  <div class="hidden" for="help_for_groups">
+                  <div class="hidden" data-for="help_for_groups">
                       <?=gettext("Hold down CTRL (pc)/COMMAND (mac) key to select multiple items");?>
                   </div>
                 </td>
@@ -317,16 +344,29 @@ $( document ).ready(function() {
                 <td>
                   <table class="table table-hover table-condensed">
                     <tr>
+                      <td><b><?=gettext("Type");?></b></td>
                       <td><b><?=gettext("Name");?></b></td>
-                      <td><b><?=gettext("Description");?></b></td>
                     </tr>
 <?php
                     if (isset($pconfig['priv']) && is_array($pconfig['priv'])) :
                         foreach ($pconfig['priv'] as $priv) :
                     ?>
                     <tr>
+                      <td>
+<?php
+                             switch (substr($priv, 0, 5)) {
+                                 case 'page-':
+                                     echo gettext('GUI');
+                                     break;
+                                 case 'user-':
+                                     echo gettext('User');
+                                     break;
+                                 default:
+                                     echo gettext('N/A');
+                                     break;
+                             } ?>
+                        </td>
                       <td><?=$priv_list[$priv]['name'];?></td>
-                      <td><?=$priv_list[$priv]['descr'];?></td>
                     </tr>
 <?php
                         endforeach;
@@ -334,7 +374,7 @@ $( document ).ready(function() {
                     <tr>
                       <td colspan="2">
                         <a href="system_usermanager_addprivs.php?groupid=<?=htmlspecialchars($id)?>" class="btn btn-default btn-xs">
-                          <span class="fa fa-pencil"></span>
+                          <span class="fa fa-pencil fa-fw"></span>
                         </a>
                       </td>
                     </tr>
@@ -346,8 +386,8 @@ $( document ).ready(function() {
               <tr>
                 <td></td>
                 <td>
-                  <input name="save" id="save" type="submit" class="btn btn-primary" value="<?=gettext("Save");?>" />
-                  <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/system_groupmanager.php'" />
+                  <input name="save" id="save" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
+                  <input type="button" class="btn btn-default" value="<?=html_safe(gettext("Cancel"));?>" onclick="window.location.href='/system_groupmanager.php'" />
 <?php
                   if (isset($id)) :?>
                   <input name="id" type="hidden" value="<?=htmlspecialchars($id);?>" />
@@ -368,66 +408,57 @@ $( document ).ready(function() {
               <thead>
                 <tr>
                   <th><?=gettext("Group name");?></th>
-                  <th class="hidden-xs"><?=gettext("Description");?></th>
                   <th><?=gettext("Member Count");?></th>
-                  <th></th>
+                  <th><?=gettext("Description");?></th>
+                  <th class="text-nowrap"></th>
                 </tr>
               </thead>
               <tbody>
 <?php
-              $i = 0;
-              foreach ($a_group as $group) :?>
+              /* create a copy for sorting */
+              $a_group_ro = $a_group;
+              uasort($a_group_ro, function($a, $b) {
+                return strnatcasecmp($a['name'], $b['name']);
+              });
+              foreach ($a_group_ro as $i => $group): ?>
                 <tr>
                   <td>
-                    <span class="glyphicon glyphicon-user <?=$group['scope'] == "system" ? "text-mute" : "text-info";?>"></span>
-                    &nbsp;
+                    <span class="fa fa-user <?= !empty($group['priv']) && in_array('page-all', $group['priv']) ? 'text-danger' : 'text-info' ?>"></span>
                     <?=$group['name']; ?>
                   </td>
-                  <td class="hidden-xs"><?=$group['description'];?></td>
-                  <td>
-                    <?=$group["name"] == "all" ?  count($config['system']['user']) :count($group['member']) ;?>
-                  </td>
-                  <td>
+                  <td><?=!empty($group['member']) ? count($group['member']) : 0; ?></td>
+                  <td><?=$group['description'];?></td>
+                  <td class="text-nowrap">
                     <a href="system_groupmanager.php?act=edit&groupid=<?=$i?>"
-                       class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("edit group");?>">
-                        <span class="glyphicon glyphicon-pencil"></span>
+                       class="btn btn-default btn-xs" data-toggle="tooltip" title="<?= html_safe(gettext('Edit')) ?>">
+                        <span class="fa fa-pencil fa-fw"></span>
                     </a>
-
-<?php
-                    if ($group['scope'] != "system") :?>
+<?php if ($group['scope'] != 'system'): ?>
                     <button type="button" class="btn btn-default btn-xs act-del-group"
                         data-groupname="<?=$group['name'];?>"
-                        data-groupid="<?=$i?>" title="<?=gettext("delete group");?>" data-toggle="tooltip">
-                      <span class="fa fa-trash text-muted"></span>
+                        data-groupid="<?=$i?>" title="<?= html_safe(gettext('Delete')) ?>" data-toggle="tooltip">
+                      <span class="fa fa-trash fa-fw"></span>
                     </button>
-<?php
-                    endif;?>
+<?php endif ?>
                   </td>
                 </tr>
-<?php
-              $i++;
-              endforeach;?>
-              </tbody>
-              <tfoot>
+<?php endforeach ?>
                 <tr>
-                  <td class="list" colspan="2"></td>
-                  <td class="hidden-xs"> </td>
-                  <td class="list">
-                    <a href="system_groupmanager.php?act=new" class="btn btn-default btn-xs"
-                       title="<?=gettext("add group");?>" data-toggle="tooltip">
-                      <span class="glyphicon glyphicon-plus"></span>
-                    </a>
-                  </td>
-                </tr>
-                <tr  class="hidden-xs">
                   <td colspan="4">
-                      <?=gettext('Additional groups can be added here. ' .
-                      'Group permissions can be assigned which are inherited by users who are members of the group. ' .
-                      'An icon that appears grey indicates that it is a system defined object. ' .
-                      'Some system object properties can be modified but they cannot be deleted.');?>
+                    <table>
+                      <tr>
+                        <td></td>
+                        <td style="width:20px"></td>
+                        <td style="width:20px"><span class="fa fa-user text-danger"></span></td>
+                        <td style="width:200px"><?= gettext('Superuser group') ?></td>
+                        <td style="width:20px"><span class="fa fa-user text-info"></span></td>
+                        <td style="width:200px"><?= gettext('Normal group') ?></td>
+                        <td></td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
-              </tfoot>
+              </tbody>
             </table>
           </form>
 <?php

@@ -11,14 +11,14 @@ if (empty($argv[1])) {
 /* Huawei example */
 $device = "/dev/{$argv[1]}";
 $statfile = "/tmp/3gstats.{$argv[2]}";
-/* mode is a comma separated value, thus submode is born */
+/* mode is a comma-separated value, thus submode is born */
 $header = "#seconds,rssi,mode,submode,upstream,downstream,sentbytes,receivedbyts,bwupstream,bwdownstream,simstate,service\n";
 
 $i = 0;
 
 $record = array();
-$handle = fopen($device, "r");
-if (! $handle) {
+$handle = @fopen($device, 'r');
+if (!$handle) {
     echo "Can not open modem stats device\n";
     exit(1);
 }
@@ -80,4 +80,3 @@ while (true) {
     $i++;
 }
 fclose($handle);
-?>

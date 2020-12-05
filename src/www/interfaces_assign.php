@@ -1,39 +1,52 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) Jim McBeath
-    Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2004 Jim McBeath
+ * Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
 require_once("rrd.inc");
 require_once("system.inc");
 require_once("interfaces.inc");
-require_once("services.inc");
+
+function link_interface_to_vlans($int)
+{
+    global $config;
+
+    if (isset($config['vlans']['vlan'])) {
+        foreach ($config['vlans']['vlan'] as $vlan) {
+            if ($int == $vlan['if']) {
+                interfaces_bring_up($int);
+            }
+        }
+    }
+}
+
 
 function list_interfaces() {
     global $config;
@@ -52,6 +65,9 @@ function list_interfaces() {
     // add physical network interfaces
     foreach (get_interface_list() as $key => $intf_item) {
         if (match_wireless_interface($key)) {
+            continue;
+        }
+        if (preg_match('/_stf$/', $key)) {
             continue;
         }
         $interfaces[$key] = array('descr' => $key . ' (' . $intf_item['mac'] . ')', 'section' => 'interfaces');
@@ -84,18 +100,19 @@ function list_interfaces() {
                         }
                     }
                 }
+                $interface_item['ifdescr'] = !empty($cnf_item['descr']) ? $cnf_item['descr'] : null;
                 $interfaces[$cnf_item[$value['key']]] = $interface_item;
             }
         }
     }
-    /* QinQ interfaces can't be directly extracted from config without additional logic */
-    if (isset($config['qinqs']['qinqentry'])) {
-        foreach ($config['qinqs']['qinqentry'] as $qinq) {
-            $interfaces["vlan{$qinq['tag']}"]= array('descr' => "VLAN {$qinq['tag']}");
-            foreach (explode(' ', $qinq['members']) as $qinqif) { // QinQ members
-                $interfaces["vlan{$qinq['tag']}_{$qinqif}"] = array( 'descr' => "QinQ {$qinqif}");
-            }
-        }
+    // XXX: get_interface_list() should probably be replaced at some point to avoid traversing through the config
+    //       for all these virtual interfaces
+    $loopbacks = iterator_to_array((new \OPNsense\Interfaces\Loopback())->loopback->iterateItems());
+    foreach ($loopbacks as $loopback) {
+        $interfaces["lo".(string)$loopback->deviceId] = array(
+          'descr' => sprintf("lo%s (%s)", $loopback->deviceId,  $loopback->description),
+          'ifdescr' => sprintf("%s", $loopback->description),
+          'section' => 'loopback');
     }
 
     // enforce constraints
@@ -117,8 +134,7 @@ function list_interfaces() {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input_errors = array();
     if (isset($_POST['add_x']) && isset($_POST['if_add'])) {
-        // ** Add new **
-        // if interface is already used, redirect.
+        /* if interface is already used redirect */
         foreach (legacy_config_get_interfaces() as $ifname => $ifdata) {
             if ($ifdata['if'] == $_POST['if_add']) {
                 header(url_safe('Location: /interfaces_assign.php'));
@@ -127,21 +143,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         /* find next free optional interface number */
-        if(empty($config['interfaces']['lan'])) {
-            $newifname = gettext("lan");
-            $descr = gettext("LAN");
-        } else {
-            for ($i = 1; $i <= count($config['interfaces']); $i++) {
-                if (empty($config['interfaces']["opt{$i}"])) {
-                    break;
-                }
+        for ($i = 1; $i <= count($config['interfaces']); $i++) {
+            if (empty($config['interfaces']["opt{$i}"])) {
+                break;
             }
-            $newifname = 'opt' . $i;
-            $descr = "OPT" . $i;
         }
 
+        $newifname = 'opt' . $i;
+        $descr = !empty($_POST['new_entry_descr']) ? $_POST['new_entry_descr'] : 'OPT' . $i;
         $config['interfaces'][$newifname] = array();
-        $config['interfaces'][$newifname]['descr'] = $descr;
+        $config['interfaces'][$newifname]['descr'] = preg_replace('/[^a-z_0-9]/i', '', $descr);
         $config['interfaces'][$newifname]['if'] = $_POST['if_add'];
         $interfaces = list_interfaces();
         if ($interfaces[$_POST['if_add']]['section'] == 'ppps.ppp') {
@@ -160,23 +171,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = $_POST['id'];
         if (link_interface_to_group($id)) {
             $input_errors[] = gettext("The interface is part of a group. Please remove it from the group to continue");
-        } else if (link_interface_to_bridge($id)) {
+        } elseif (link_interface_to_bridge($id)) {
             $input_errors[] = gettext("The interface is part of a bridge. Please remove it from the bridge to continue");
-        } else if (link_interface_to_gre($id)) {
+        } elseif (link_interface_to_gre($id)) {
             $input_errors[] = gettext("The interface is part of a gre tunnel. Please delete the tunnel to continue");
-        } else if (link_interface_to_gif($id)) {
+        } elseif (link_interface_to_gif($id)) {
             $input_errors[] = gettext("The interface is part of a gif tunnel. Please delete the tunnel to continue");
         } else {
             // no validation errors, delete entry
             unset($config['interfaces'][$id]['enable']);
             $realid = get_real_interface($id);
-            interface_bring_down($id, true);   /* down the interface */
+            interface_bring_down($id);   /* down the interface */
 
             unset($config['interfaces'][$id]);  /* delete the specified OPTn or LAN*/
 
             if (isset($config['dhcpd'][$id])) {
                 unset($config['dhcpd'][$id]);
-                services_dhcpd_configure();
+                plugins_configure('dhcp', false, array('inet'));
+            }
+            if (isset($config['dhcpdv6'][$id])) {
+                unset($config['dhcpdv6'][$id]);
+                plugins_configure('dhcp', false, array('inet6'));
             }
             if (isset($config['filter']['rule'])) {
                 foreach ($config['filter']['rule'] as $x => $rule) {
@@ -199,10 +214,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              * then ensure that we are not running DHCP on the wan which
              * will make a lot of ISP's unhappy.
              */
-            if(!empty($config['interfaces']['lan']) && !empty($config['dhcpd']['wan']) && !empty($config['dhcpd']['wan']) ) {
+            if (!empty($config['interfaces']['lan']) && !empty($config['dhcpd']['wan']) && !empty($config['dhcpd']['wan']) ) {
                 unset($config['dhcpd']['wan']);
             }
-            link_interface_to_vlans($realid, "update");
+            link_interface_to_vlans($realid);
             header(url_safe('Location: /interfaces_assign.php'));
             exit;
         }
@@ -263,8 +278,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           foreach ($_POST as $ifname => $ifport) {
               if (!is_array($ifport) && ($ifname == 'lan' || $ifname == 'wan' || substr($ifname, 0, 3) == 'opt')) {
                   $reloadif = false;
-                  if (!empty($config['interfaces'][$ifname]['if']) && $config['interfaces'][$ifname]['if'] <> $ifport) {
-                      interface_bring_down($ifname, true);
+                  if (!empty($config['interfaces'][$ifname]['if']) && $config['interfaces'][$ifname]['if'] != $ifport) {
+                      interface_bring_down($ifname);
                       /* Mark this to be reconfigured in any case. */
                       $reloadif = true;
                   }
@@ -273,18 +288,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       $config['interfaces'][$ifname]['ipaddr'] = $interfaces[$ifport]['type'];
                   }
 
-                  if (substr($ifport, 0, 3) == 'gre' || substr($ifport, 0, 3) == 'gif') {
-                      unset($config['interfaces'][$ifname]['ipaddr']);
-                      unset($config['interfaces'][$ifname]['subnet']);
-                      unset($config['interfaces'][$ifname]['ipaddrv6']);
-                      unset($config['interfaces'][$ifname]['subnetv6']);
+                  foreach (plugins_devices() as $device) {
+                      if (!isset($device['configurable']) || $device['configurable'] == true) {
+                          continue;
+                      }
+                      if (preg_match('/' . $device['pattern'] . '/', $ifport)) {
+                          unset($config['interfaces'][$ifname]['ipaddr']);
+                          unset($config['interfaces'][$ifname]['subnet']);
+                          unset($config['interfaces'][$ifname]['ipaddrv6']);
+                          unset($config['interfaces'][$ifname]['subnetv6']);
+                      }
                   }
 
                   /* check for wireless interfaces, set or clear ['wireless'] */
                   if (match_wireless_interface($ifport)) {
-                      if (empty($config['interfaces'][$ifname]['wireless'])) {
-                          $config['interfaces'][$ifname]['wireless'] = array();
-                      }
+                      config_read_array('interfaces', $ifname, 'wireless');
                   } elseif (isset($config['interfaces'][$ifname]['wireless'])) {
                       unset($config['interfaces'][$ifname]['wireless']);
                   }
@@ -300,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           interface_sync_wireless_clones($config['interfaces'][$ifname], false);
                       }
                       /* Reload all for the interface. */
-                      interface_configure($ifname, true);
+                      interface_configure(false, $ifname, true);
                       // count changes
                       $changes++;
                   }
@@ -322,16 +340,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $interfaces = list_interfaces();
 legacy_html_escape_form_data($interfaces);
 $unused_interfaces= array();
-foreach ($interfaces as $portname => $portinfo) {
+$all_interfaces = legacy_config_get_interfaces();
+$ifdetails = legacy_interfaces_details();
+$intfkeys = array_keys($interfaces);
+natcasesort($intfkeys);
+foreach ($intfkeys as $portname) {
     $portused = false;
-    foreach (legacy_config_get_interfaces() as $ifname => $ifdata) {
+    if (!empty($ifdetails[$portname]) && !empty($ifdetails[$portname]['status'])) {
+        $interfaces[$portname]['status'] = $ifdetails[$portname]['status'];
+    }
+    foreach ($all_interfaces as $ifname => $ifdata) {
         if ($ifdata['if'] == $portname) {
             $portused = true;
             break;
         }
     }
     if (!$portused) {
-        $unused_interfaces[$portname] = $portinfo;
+        $unused_interfaces[$portname] = $interfaces[$portname];
     }
 }
 
@@ -339,7 +364,7 @@ include("head.inc");
 ?>
 
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
     // link delete buttons
     $(".act_delete").click(function(event){
@@ -363,6 +388,14 @@ include("head.inc");
                 }
               }]
       });
+    });
+
+    $("#if_add").change(function(event){
+        event.preventDefault();
+        let descr = $("#if_add option:selected").data('ifdescr');
+        if (descr) {
+            $("#new_entry_descr").val(descr);
+        }
     });
 
   });
@@ -393,15 +426,17 @@ include("head.inc");
                   <tbody>
 <?php
                   foreach (legacy_config_get_interfaces(array("virtual" => false)) as $ifname => $iface):?>
+                      <?=legacy_html_escape_form_data($iface);?>
                       <tr>
                         <td>
                           <strong><u><span onclick="location.href='/interfaces.php?if=<?=$ifname;?>'" style="cursor: pointer;"><?=$iface['descr'];?></span></u></strong>
                         </td>
                         <td>
-                          <select name="<?=$ifname;?>" id="<?=$ifname;?>">
+                          <select name="<?=$ifname;?>" id="<?=$ifname;?>"  class="selectpicker" data-size="10">
 <?php
                           foreach ($interfaces as $portname => $portinfo):?>
-                            <option  value="<?=$portname;?>"  <?= $portname == $iface['if'] ? " selected=\"selected\"" : "";?>>
+                            <option data-icon="fa fa-plug <?=$portinfo['status'] == 'no carrier' ? "text-danger": "text-success";?>"
+                                    value="<?=$portname;?>"  <?= $portname == $iface['if'] ? " selected=\"selected\"" : "";?>>
                               <?=$portinfo['descr'];?>
                             </option>
 <?php
@@ -409,9 +444,13 @@ include("head.inc");
                           </select>
                         </td>
                         <td>
-                          <button title="<?=gettext("delete interface");?>" data-toggle="tooltip" data-id="<?=$ifname;?>" class="btn btn-default act_delete" type="submit">
-                            <span class="fa fa-trash text-muted"></span>
+<?php
+                          if (empty($iface['lock'])): ?>
+                          <button title="<?= html_safe(gettext('Delete')) ?>" data-toggle="tooltip" data-id="<?=$ifname;?>" class="btn btn-default act_delete" type="submit">
+                            <i class="fa fa-trash fa-fw"></i>
                           </button>
+<?php
+                          endif ?>
                         </td>
                       </tr>
 <?php
@@ -420,31 +459,38 @@ include("head.inc");
                       <tr>
                         <td><?= gettext('New interface:') ?></td>
                         <td>
-                          <select name="if_add" id="if_add">
+                          <select name="if_add" id="if_add" class="selectpicker" data-size="10">
 <?php
                           foreach ($unused_interfaces as $portname => $portinfo): ?>
-                            <option  value="<?=$portname;?>"> <?=$portinfo['descr'];?></option>
+                            <option data-icon="fa fa-plug <?=$portinfo['status'] == 'no carrier' ? "text-danger": "text-success";?>"
+                                    data-ifdescr="<?=!empty($portinfo['ifdescr']) ? $portinfo['ifdescr'] : '';?>"
+                                    value="<?=$portname;?>">
+                                    <?=$portinfo['descr'];?>
+                            </option>
 <?php
                           endforeach; ?>
                           </select>
+                          <div class="form-group">
+                            <label for="new_entry_descr"><?=gettext("Description");?></label>
+                            <input id="new_entry_descr" name="new_entry_descr" type="text" class="form-control">
+                          </form>
                         </td>
                         <td>
-                          <button name="add_x" type="submit" value="<?=$portname;?>" class="btn btn-primary" title="<?=gettext("add selected interface");?>" data-toggle="tooltip">
-                            <span class="glyphicon glyphicon-plus"></span>
+                          <button name="add_x" type="submit" value="<?=$portname;?>" class="btn btn-primary" title="<?= html_safe(gettext('Add')) ?>" data-toggle="tooltip">
+                            <i class="fa fa-plus fa-fw"></i>
                           </button>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td colspan="2"></td>
-                        <td>
-                          <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
                         </td>
                       </tr>
 <?php
                       endif; ?>
+                      <tr>
+                        <td colspan="2"></td>
+                        <td>
+                          <button name="Submit" type="submit" class="btn btn-primary" value="yes"><?= gettext('Save') ?></button>
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
-                </div>
               </div>
             </form>
           </div>
@@ -452,4 +498,5 @@ include("head.inc");
       </div>
     </div>
   </section>
-<?php include("foot.inc"); ?>
+
+<?php include("foot.inc");

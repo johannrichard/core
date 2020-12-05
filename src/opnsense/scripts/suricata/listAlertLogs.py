@@ -1,7 +1,7 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python3
 
 """
-    Copyright (c) 2015 Ad Schellevis
+    Copyright (c) 2015-2019 Ad Schellevis <ad@opnsense.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -30,13 +30,15 @@
     list all available alert logs
 """
 
+import sys
+sys.path.insert(0, "/usr/local/opnsense/site-python")
 import os
 import glob
 import ujson
 import time
 import datetime
 from lib import suricata_alert_log
-from lib.log import reverse_log_reader
+from log_helper import reverse_log_reader
 
 if __name__ == '__main__':
     result = []

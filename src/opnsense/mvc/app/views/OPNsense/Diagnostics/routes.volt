@@ -26,32 +26,38 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #}
 
-<script type="text/javascript">
+<script>
     $( document ).ready(function() {
         var gridopt = {
             ajax: false,
             selection: false,
-            multiSelect: false
+            multiSelect: false,
+            formatters: {
+                "commands": function (column, row) {
+                    return "<button type=\"button\" \
+                                    class=\"btn btn-xs btn-default command-delete\" \
+                                    data-row-id=\"" + row.destination + "," + row.gateway +"\"><span class=\"fa fa-trash-o\"></span></button>";
+                }
+            }
         };
+
         $("#grid-routes").bootgrid('destroy');
         $("#grid-routes").bootgrid(gridopt);
 
         // update routes
         $("#update").click(function() {
             $('#processing-dialog').modal('show');
+            let resolve = '';
             if ($("#resolve").prop("checked")) {
                 resolve = "yes";
-            } else {
-                resolve = "";
             }
-            ajaxGet(url = "/api/diagnostics/interface/getRoutes/",
-                    sendData = {resolve:resolve}, callback = function (data, status) {
+            ajaxGet("/api/diagnostics/interface/getRoutes/", {resolve:resolve}, function (data, status) {
                         if (status == "success") {
                             $("#grid-routes").bootgrid('destroy');
                             var html = [];
                             $.each(data, function (key, value) {
                                 var fields = ["proto", "destination", "gateway", "flags", "use", "mtu", "netif","intf_description", "expire"];
-                                tr_str = '<tr>';
+                                let tr_str = '<tr>';
                                 for (var i = 0; i < fields.length; i++) {
                                     if (value[fields[i]] != null) {
                                         tr_str += '<td>' + value[fields[i]] + '</td>';
@@ -63,7 +69,21 @@ POSSIBILITY OF SUCH DAMAGE.
                                 html.push(tr_str);
                             });
                             $("#grid-routes > tbody").html(html.join(''));
-                            $("#grid-routes").bootgrid(gridopt);
+                            var grid = $("#grid-routes").bootgrid(gridopt).on("loaded.rs.jquery.bootgrid", function(){
+                              grid.find(".command-delete").on("click", function(e){
+                                  let route=$(this).data("row-id").split(',');
+                                  stdDialogConfirm('{{ lang._('Remove static route') }}' + ' ('+$(this).data("row-id")+')',
+                                                   '{{ lang._('Are you sure you want to remove this route? Caution, this could potentially lead to loss of connectivity') }}',
+                                                   '{{ lang._('Yes') }}',
+                                                   '{{ lang._('No') }}',
+                                                   function() {
+                                      ajaxCall('/api/diagnostics/interface/delRoute/', {'destination': route[0], 'gateway': route[1]},function(data,status){
+                                          // reload grid after delete
+                                          $("#update").click();
+                                      });
+                                  });
+                              });
+                            });
                         }
                         $('#processing-dialog').modal('hide');
                     }
@@ -84,14 +104,15 @@ POSSIBILITY OF SUCH DAMAGE.
                         <thead>
                         <tr>
                             <th data-column-id="proto" data-type="string" >{{ lang._('Proto') }}</th>
-                            <th data-column-id="destination" data-type="string" data-identifier="true">{{ lang._('Destination') }}</th>
+                            <th data-column-id="destination" data-type="string">{{ lang._('Destination') }}</th>
                             <th data-column-id="gateway" data-type="string">{{ lang._('Gateway') }}</th>
                             <th data-column-id="flags" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Flags') }}</th>
-                            <th data-column-id="use" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Use') }}</th>
-                            <th data-column-id="mtu" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('MTU') }}</th>
+                            <th data-column-id="use" data-type="numeric" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Use') }}</th>
+                            <th data-column-id="mtu" data-type="numeric" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('MTU') }}</th>
                             <th data-column-id="netif" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Netif') }}</th>
                             <th data-column-id="intf_description" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Netif (name)') }}</th>
                             <th data-column-id="expire" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Expire') }}</th>
+                            <th data-column-id="commands" data-width="2em" data-formatter="commands" data-sortable="false">{{ lang._('Action') }}</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -110,8 +131,7 @@ POSSIBILITY OF SUCH DAMAGE.
                                 <strong><?=gettext("Name resolution");?></strong>
                                 <p class="text-muted">
                                     <small>
-                                        {{ lang._("Enable this to attempt to resolve names when displaying the tables.") }}<br/>
-                                        {{ lang._('Note:') }} {{ lang._("By enabling name resolution, the query should take a bit longer.") }}
+                                        {{ lang._('Enable this to attempt to resolve names when displaying the tables. By enabling name resolution, the query may take longer.') }}
                                     </small>
                                 </p>
                             </td>
@@ -126,7 +146,6 @@ POSSIBILITY OF SUCH DAMAGE.
                         </tr>
                     </table>
                 </div>
-                <hr/>
             </div>
         </div>
     </div>

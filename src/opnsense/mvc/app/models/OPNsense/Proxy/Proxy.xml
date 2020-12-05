@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/proxy</mount>
-    <version>1.0.0</version>
+    <version>1.0.4</version>
     <description>
         (squid) proxy settings
     </description>
@@ -10,6 +10,15 @@
                 <default>0</default>
                 <Required>Y</Required>
             </enabled>
+            <error_pages type="OptionField">
+                <Required>N</Required>
+                <Default>opnsense</Default>
+                <BlankDesc>Squid</BlankDesc>
+                <OptionValues>
+                    <opnsense>OPNsense</opnsense>
+                    <custom>Custom</custom>
+                </OptionValues>
+            </error_pages>
             <icpPort type="IntegerField">
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>65535</MaximumValue>
@@ -36,7 +45,9 @@
                     <BlankDesc>File</BlankDesc>
                     <OptionValues>
                         <file_extendend>File (Extended)</file_extendend>
+                        <file_json>File (Json)</file_json>
                         <syslog>Syslog</syslog>
+                        <syslog_json>Syslog (Json)</syslog_json>
                     </OptionValues>
                 </target>
             </logging>
@@ -56,6 +67,7 @@
                     <on>Append client's IP (on)</on>
                     <off>Set forward header to unknown (off)</off>
                     <transparent>Do not alter forward header (transparent)</transparent>
+                    <delete>Remove forward header (delete)</delete>
                     <truncate>Replace all with client's IP (truncate)</truncate>
                 </OptionValues>
             </forwardedForHandling>
@@ -70,6 +82,10 @@
                     <chop>Chop URI at first whitespace</chop>
                 </OptionValues>
             </uriWhitespaceHandling>
+            <enablePinger type="BooleanField">
+                <default>1</default>
+                <Required>Y</Required>
+            </enablePinger>
             <useViaHeader type="BooleanField">
                 <default>1</default>
                 <Required>N</Required>
@@ -78,13 +94,17 @@
                 <default>0</default>
                 <Required>N</Required>
             </suppressVersion>
+            <connecttimeout type="IntegerField">
+                <Required>N</Required>
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>120</MaximumValue>
+            </connecttimeout>
             <VisibleEmail type="EmailField">
                 <default>admin@localhost.local</default>
                 <Required>N</Required>
                 <ValidationMessage>Please enter a valid email address.</ValidationMessage>
             </VisibleEmail>
             <VisibleHostname type="TextField">
-                <default>localhost</default>
                 <Required>N</Required>
                 <mask>/^([0-9a-zA-Z\.,_\-:]){0,1024}$/u</mask>
                 <ValidationMessage>Please enter a valid servername, ip address or leave this option blank.</ValidationMessage>
@@ -129,6 +149,14 @@
                         <ValidationMessage>Specify a positive number of second-level subdirectories.</ValidationMessage>
                         <Required>Y</Required>
                     </l2>
+                    <cache_linux_packages type="BooleanField">
+                        <default>0</default>
+                        <Required>Y</Required>
+                    </cache_linux_packages>
+                    <cache_windows_updates type="BooleanField">
+                        <default>0</default>
+                        <Required>Y</Required>
+                    </cache_windows_updates>
                 </local>
             </cache>
             <traffic>
@@ -175,11 +203,64 @@
                     </Constraints>
                 </perHostTrotteling>
             </traffic>
+            <parentproxy>
+                <enabled type="BooleanField">
+                    <default>0</default>
+                    <Required>Y</Required>
+                </enabled>
+                <host type="HostnameField">
+                    <Required>N</Required>
+                    <Constraints>
+                        <check001>
+                            <ValidationMessage>A host must be set.</ValidationMessage>
+                            <type>DependConstraint</type>
+                            <addFields>
+                                <field1>enabled</field1>
+                            </addFields>
+                        </check001>
+                    </Constraints>
+                </host>
+                <enableauth type="BooleanField">
+                    <default>0</default>
+                    <Required>Y</Required>
+                </enableauth>
+                <user type="TextField">
+                    <default>username</default>
+                    <Required>Y</Required>
+                    <mask>/^([0-9a-zA-Z\._\-]){1,32}$/u</mask>
+                    <ValidationMessage>Username can be up to 32 signs long. Alphanumeric characters and also dot, dash and underscore allowed.</ValidationMessage>
+                </user>
+                <password type="TextField">
+                    <default>password</default>
+                    <Required>Y</Required>
+                    <mask>/^([0-9a-zA-Z\._\-]){1,32}$/u</mask>
+                    <ValidationMessage>Password can be up to 32 signs long. Alphanumeric characters and also dot, dash and underscore allowed.</ValidationMessage>
+                </password>
+                <port type="PortField">
+                    <Required>N</Required>
+                    <Constraints>
+                        <check001>
+                            <ValidationMessage>A port must be set.</ValidationMessage>
+                            <type>DependConstraint</type>
+                            <addFields>
+                                <field1>enabled</field1>
+                            </addFields>
+                        </check001>
+                    </Constraints>
+                </port>
+                <localdomains type="CSVListField">
+                    <Required>N</Required>
+                </localdomains>
+                <localips type="CSVListField">
+                    <Required>N</Required>
+                </localips>
+            </parentproxy>
         </general>
         <forward>
             <interfaces type="InterfaceField">
                 <Required>N</Required>
                 <multiple>Y</multiple>
+                <AllowDynamic>S</AllowDynamic>
                 <default>lan</default>
                 <filters>
                     <enable>/^(?!0).*$/</enable>
@@ -203,10 +284,24 @@
             <sslbump type="BooleanField">
                 <default>0</default>
                 <Required>Y</Required>
+                <Constraints>
+                    <check001>
+                        <ValidationMessage>When enabling "Log SNI information only", SSL inspection must also be enabled</ValidationMessage>
+                        <type>DependConstraint</type>
+                        <addFields>
+                            <field1>sslurlonly</field1>
+                        </addFields>
+                    </check001>
+                </Constraints>
             </sslbump>
             <sslurlonly type="BooleanField">
-		<default>0</default>
-		<Required>Y</Required>
+                <default>0</default>
+                <Required>Y</Required>
+                <Constraints>
+                    <check001>
+                        <reference>sslbump.check001</reference>
+                    </check001>
+                </Constraints>
             </sslurlonly>
             <sslcertificate type="CertificateField">
                 <Required>N</Required>
@@ -232,6 +327,21 @@
               <MaximumValue>32</MaximumValue>
               <ValidationMessage>the number of sslrtd children needs to be an integer value between 1 and 32</ValidationMessage>
             </sslcrtd_children>
+            <snmp_enable type="BooleanField">
+                <default>0</default>
+                <Required>Y</Required>
+            </snmp_enable>
+            <snmp_port type="IntegerField">
+                <MinimumValue>1</MinimumValue>
+                <MaximumValue>65535</MaximumValue>
+                <ValidationMessage>SNMP port needs to be an integer value between 1 and 65535</ValidationMessage>
+                <Required>Y</Required>
+                <default>3401</default>
+            </snmp_port>
+            <snmp_password type="TextField">
+                <default>public</default>
+                <Required>Y</Required>
+            </snmp_password>
             <ftpInterfaces type="InterfaceField">
                 <Required>N</Required>
                 <multiple>Y</multiple>
@@ -284,6 +394,18 @@
                 <mimeType type="CSVListField">
                     <Required>N</Required>
                 </mimeType>
+                <googleapps type="HostnameField">
+                    <Required>N</Required>
+                    <mask>/^([a-zA-Z0-9]){0,}\.([a-zA-Z0-9].){0,}/</mask>
+                    <ValidationMessage>Please enter a valid domain name here</ValidationMessage>
+                </googleapps>
+                <youtube type="OptionField">
+                    <Required>N</Required>
+                    <OptionValues>
+                        <strict>Strict</strict>
+                        <moderate>Moderate</moderate>
+                    </OptionValues>
+                </youtube>
                 <safePorts type="CSVListField">
                     <default>80:http,21:ftp,443:https,70:gopher,210:wais,1025-65535:unregistered ports,280:http-mgmt,488:gss-http,591:filemaker,777:multiling http</default>
                     <mask>/^([ \-0-9a-zA-Z:,])*/u</mask>
@@ -363,12 +485,12 @@
                     <Required>Y</Required>
                 </enable>
                 <RequestURL type="TextField">
-                    <Required>Y</Required>
-                    <default>icap://127.0.0.1/reqmod</default>
+                    <default>icap://[::1]:1344/avscan</default>
+                    <Required>N</Required>
                 </RequestURL>
                 <ResponseURL type="TextField">
-                    <default>icap://127.0.0.1/respmod</default>
-                    <Required>Y</Required>
+                    <default>icap://[::1]:1344/avscan</default>
+                    <Required>N</Required>
                 </ResponseURL>
                 <SendClientIP type="BooleanField">
                     <Required>Y</Required>
@@ -399,12 +521,19 @@
                     <default>60</default>
                     <Required>Y</Required>
                 </OptionsTTL>
+                <exclude type="CSVListField">
+                    <Required>N</Required>
+                </exclude>
             </icap>
             <authentication>
                 <method type="AuthenticationServerField">
                     <Required>N</Required>
                     <multiple>Y</multiple>
                 </method>
+                <authEnforceGroup type="AuthGroupField">
+                  <Required>N</Required>
+                  <Multiple>Y</Multiple>
+                </authEnforceGroup>
                 <realm type="TextField">
                     <default>OPNsense proxy authentication</default>
                     <mask>/^([\t\n\v\f\r 0-9a-zA-Z.,_\x{00A0}-\x{FFFF}]){0,255}$/u</mask>
@@ -424,5 +553,222 @@
                 </children>
             </authentication>
         </forward>
+        <pac>
+          <proxy type="ArrayField">
+              <name type="TextField">
+                  <Required>Y</Required>
+                  <ValidationMessage>The proxy name must be set.</ValidationMessage>
+                  <Constraints>
+                      <check001>
+                          <ValidationMessage>Proxy name should be unique</ValidationMessage>
+                          <type>UniqueConstraint</type>
+                      </check001>
+                  </Constraints>
+              </name>
+              <proxy_type type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <PROXY>Proxy</PROXY>
+                      <DIRECT>Direct Connection (no Proxy)</DIRECT>
+                      <HTTP>HTTP Proxy</HTTP>
+                      <HTTPS>HTTPS Proxy</HTTPS>
+                      <SOCKS>SOCKS</SOCKS>
+                      <SOCKS4>SOCKS Version 4</SOCKS4>
+                      <SOCKS5>SOCKS Version 5</SOCKS5>
+                  </OptionValues>
+              </proxy_type>
+              <url type="TextField">
+                  <Required>N</Required>
+                  <ValidationMessage>This does not look like a valid proxy or direct connection.</ValidationMessage>
+              </url>
+              <description type="TextField">
+                  <Required>N</Required>
+                  <mask>/^([\t\n\v\f\r 0-9a-zA-Z\-.,_\x{00A0}-\x{FFFF}]){1,255}$/u</mask>
+              </description>
+          </proxy>
+          <match type="ArrayField">
+              <name type="TextField">
+                  <Required>Y</Required>
+                  <ValidationMessage>The match name must be set.</ValidationMessage>
+                  <Constraints>
+                      <check001>
+                          <ValidationMessage>Match name should be unique</ValidationMessage>
+                          <type>UniqueConstraint</type>
+                      </check001>
+                  </Constraints>
+              </name>
+              <description type="TextField">
+                  <Required>N</Required>
+                  <mask>/^([\t\n\v\f\r 0-9a-zA-Z\-.,_\x{00A0}-\x{FFFF}]){1,255}$/u</mask>
+              </description>
+              <negate type="BooleanField">
+                  <default>0</default>
+                  <Required>Y</Required>
+              </negate>
+              <match_type type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <url_matches>URL Matches</url_matches>
+                      <hostname_matches>Hostname Matches</hostname_matches>
+                      <dns_domain_is>DNS Domain Is</dns_domain_is>
+                      <destination_in_net>IP Is In Network</destination_in_net>
+                      <my_ip_in_net>My IP Is In Network</my_ip_in_net>
+                      <plain_hostname>Plain Hostname (No Dots Inside)</plain_hostname>
+                      <is_resolvable>Is Resolvable</is_resolvable>
+                      <dns_domain_levels>DNS Domain Levels (Count Of Dots)</dns_domain_levels>
+                      <weekday_range>Weekday Range</weekday_range>
+                      <date_range>Date Range</date_range>
+                      <time_range>Time Range</time_range>
+                  </OptionValues>
+              </match_type>
+              <hostname type="TextField">
+                  <Required>N</Required>
+              </hostname>
+              <url type="TextField">
+                  <Mask>/^[^"]*$/</Mask>
+                  <Required>N</Required>
+              </url>
+              <network type="NetworkField">
+                <Required>N</Required>
+              </network>
+              <domain_level_from type="IntegerField">
+                  <default>0</default>
+                  <MinimumValue>0</MinimumValue>
+                  <ValidationMessage>Minimum domain level must be bigger than 0.</ValidationMessage>
+                  <Required>N</Required>
+              </domain_level_from>
+              <domain_level_to type="IntegerField">
+                  <default>0</default>
+                  <MinimumValue>0</MinimumValue>
+                  <ValidationMessage>A hostname cannot have a negative count of levels.</ValidationMessage>
+                  <Required>N</Required>
+              </domain_level_to>
+              <time_from type="IntegerField">
+                  <default>0</default>
+                  <MinimumValue>0</MinimumValue>
+                  <ValidationMessage>The first hour of the day is 0.</ValidationMessage>
+                  <Required>N</Required>
+              </time_from>
+              <time_to type="IntegerField">
+                  <default>0</default>
+                  <MinimumValue>0</MinimumValue>
+                  <MaximumValue>23</MaximumValue>
+                  <ValidationMessage>The last hour of the day is 23!</ValidationMessage>
+                  <Required>N</Required>
+              </time_to>
+              <date_from type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <JAN>January</JAN>
+                      <FEB>February</FEB>
+                      <MAR>March</MAR>
+                      <APR>April</APR>
+                      <MAY>May</MAY>
+                      <JUN>June</JUN>
+                      <JUL>July</JUL>
+                      <AUG>August</AUG>
+                      <SEP>September</SEP>
+                      <OCT>October</OCT>
+                      <NOV>November</NOV>
+                      <DEC>December</DEC>
+                  </OptionValues>
+              </date_from>
+              <date_to type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <JAN>January</JAN>
+                      <FEB>February</FEB>
+                      <MAR>March</MAR>
+                      <APR>April</APR>
+                      <MAY>May</MAY>
+                      <JUN>June</JUN>
+                      <JUL>July</JUL>
+                      <AUG>August</AUG>
+                      <SEP>September</SEP>
+                      <OCT>October</OCT>
+                      <NOV>November</NOV>
+                      <DEC>December</DEC>
+                  </OptionValues>
+              </date_to>
+              <weekday_from type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <MON>Monday</MON>
+                      <TUE>Tuesday</TUE>
+                      <WED>Wednesday</WED>
+                      <THU>Thursday</THU>
+                      <FRI>Friday</FRI>
+                      <SAT>Saturday</SAT>
+                      <SUN>Sunday</SUN>
+                  </OptionValues>
+              </weekday_from>
+              <weekday_to type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <MON>Monday</MON>
+                      <TUE>Tuesday</TUE>
+                      <WED>Wednesday</WED>
+                      <THU>Thursday</THU>
+                      <FRI>Friday</FRI>
+                      <SAT>Saturday</SAT>
+                      <SUN>Sunday</SUN>
+                  </OptionValues>
+              </weekday_to>
+          </match>
+          <rule type="ArrayField">
+              <enabled type="BooleanField">
+                  <default>1</default>
+                  <Required>Y</Required>
+              </enabled>
+              <description type="TextField">
+                  <Required>N</Required>
+                  <mask>/^([\t\n\v\f\r 0-9a-zA-Z\-.,_\x{00A0}-\x{FFFF}]){1,255}$/u</mask>
+              </description>
+              <matches type="ModelRelationField">
+                  <Model>
+                      <queues>
+                          <source>OPNsense.Proxy.Proxy</source>
+                          <items>pac.match</items>
+                          <display>name</display>
+                      </queues>
+                  </Model>
+                  <Required>Y</Required>
+                  <multiple>Y</multiple>
+              </matches>
+              <join_type type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <and>And</and>
+                      <or>Or</or>
+                  </OptionValues>
+              </join_type>
+              <match_type type="OptionField">
+                  <Required>Y</Required>
+                  <OptionValues>
+                      <if>If</if>
+                      <unless>Unless</unless>
+                  </OptionValues>
+              </match_type>
+              <proxies type="ModelRelationField">
+                  <Sorted>Y</Sorted>
+                  <Model>
+                      <queues>
+                          <source>OPNsense.Proxy.Proxy</source>
+                          <items>pac.proxy</items>
+                          <display>name</display>
+                      </queues>
+                  </Model>
+                  <Required>Y</Required>
+                  <multiple>Y</multiple>
+              </proxies>
+          </rule>
+        </pac>
+        <error_pages>
+          <template type="TextField">
+              <Required>N</Required>
+              <mask>/[0-9a-zA-Z\+\=\/]{20,}/u</mask>
+              <ValidationMessage>File content should be in (base64 encoded) zip format</ValidationMessage>
+          </template>
+        </error_pages>
     </items>
 </model>

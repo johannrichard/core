@@ -2,7 +2,7 @@
 
 /*
     Copyright (C) 2014 Deciso B.V.
-    Copyright (C) 2010 Scott Ullrich
+    Copyright (C) 2010 Scott Ullrich <sullrich@gmail.com>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,7 @@
 
 require_once("guiconfig.inc");
 
-$data_tabs = array("info", "memory", "timeouts", "interfaces", "rules");
+$data_tabs = array("info" => gettext("info"), "memory" => gettext("memory"), "timeouts" => gettext("timeouts"), "interfaces" => gettext("interfaces"), "rules" => gettext("rules"), "nat" => gettext("nat"));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['getactivity'])) {
@@ -44,7 +44,7 @@ include("head.inc");
 ?>
 <body>
 <?php include("fbegin.inc"); ?>
-<script type="text/javascript">
+<script>
 $( document ).ready(function() {
   function getpfinfo() {
     jQuery.ajax({
@@ -56,7 +56,7 @@ $( document ).ready(function() {
           // push data into tabs
           $.each(data, function(key, value) {
               if ($("#data_"+key.toLowerCase()).length) {
-                  $("#data_"+key.toLowerCase()).html(value);
+                  $("#data_"+key.toLowerCase()).text(value);
               }
           });
           setTimeout(getpfinfo, 2000);
@@ -74,18 +74,18 @@ $( document ).ready(function() {
         <section class="col-xs-12">
           <ul class="nav nav-tabs" data-tabs="tabs" id="maintabs">
 <?php
-             foreach($data_tabs as $i => $tabname):?>
+             foreach(array_keys($data_tabs) as $i => $tabname):?>
             <li <?= $i == 0 ? 'class="active"' : '';?>>
               <a data-toggle="tab" href="#<?=$tabname;?>" id="<?=$tabname;?>_tab">
-                <?=ucfirst($tabname);?>
+                <?=ucfirst($data_tabs[$tabname]);?>
               </a>
             </li>
 <?php
             endforeach;?>
           </ul>
-          <div class="tab-content content-box tab-content">
+          <div class="tab-content content-box">
 <?php
-             foreach($data_tabs as $i => $tabname):?>
+             foreach(array_keys($data_tabs) as $i => $tabname):?>
             <div id="<?=$tabname;?>" class="tab-pane fade in <?= $i == 0 ? 'active' : '';?>">
               <br/>
               <div class="container-fluid">
@@ -93,7 +93,7 @@ $( document ).ready(function() {
                 <?=gettext("Gathering PF information, please wait...");?>
                 </pre>
               </div>
-              </br>
+              <br/>
             </div>
 <?php
             endforeach;?>

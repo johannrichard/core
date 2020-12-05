@@ -1,36 +1,36 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2004 Scott Ullrich
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2018 Fabian Franz
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
-
 
 /****f* legacy/is_schedule_inuse
  * NAME
@@ -62,11 +62,6 @@ function is_schedule_inuse($schedule)
         return false;
 }
 
-function schedulecmp($a, $b)
-{
-    return strcmp($a['name'], $b['name']);
-}
-
 function schedule_sort()
 {
     global $config;
@@ -75,17 +70,15 @@ function schedule_sort()
         return;
     }
 
-    usort($config['schedules']['schedule'], "schedulecmp");
+    usort($config['schedules']['schedule'], function ($a, $b) {
+        return strcmp($a['name'], $b['name']);
+    });
 }
 
 $dayArray = array (gettext('Mon'),gettext('Tues'),gettext('Wed'),gettext('Thur'),gettext('Fri'),gettext('Sat'),gettext('Sun'));
 $monthArray = array (gettext('January'),gettext('February'),gettext('March'),gettext('April'),gettext('May'),gettext('June'),gettext('July'),gettext('August'),gettext('September'),gettext('October'),gettext('November'),gettext('December'));
 
-
-if (!isset($config['schedules']['schedule'])) {
-    $config['schedules']['schedule'] = array();
-}
-$a_schedules = &$config['schedules']['schedule'];
+$a_schedules = &config_read_array('schedules', 'schedule');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // input record id, if valid
@@ -107,24 +100,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig['descr'] = $a_schedules[$configId]['descr'];
     $pconfig['timerange'] = isset($a_schedules[$configId]['timerange']) ? $a_schedules[$configId]['timerange'] : array();
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $input_errors = array();
     if (isset($_POST['id']) && isset($a_schedules[$_POST['id']])) {
         $id = $_POST['id'];
     }
     $pconfig = $_POST;
 
     // validate
-    if(strtolower($pconfig['name']) == "lan")
-        $input_errors[] = gettext("Schedule may not be named LAN.");
-    if(strtolower($pconfig['name']) == "wan")
-        $input_errors[] = gettext("Schedule may not be named WAN.");
-    if(strtolower($pconfig['name']) == "")
-        $input_errors[] = gettext("Schedule name cannot be blank.");
-    $x = is_validaliasname($pconfig['name']);
-    if (!isset($x)) {
-        $input_errors[] = gettext("Reserved word used for schedule name.");
-    } elseif ($x == false) {
-        $input_errors[] = gettext("The schedule name may only consist of the characters a-z, A-Z, 0-9");
+    if (strtolower($pconfig['name']) == 'lan') {
+        $input_errors[] = gettext('Schedule may not be named LAN.');
     }
+    if (strtolower($pconfig['name']) == 'wan') {
+        $input_errors[] = gettext('Schedule may not be named WAN.');
+    }
+    if (empty($pconfig['name'])) {
+        $input_errors[] = gettext('Schedule may not use a blank name.');
+    }
+
+    $valid = is_validaliasname($pconfig['name']);
+    if ($valid === false) {
+        $input_errors[] = sprintf(gettext('The schedule name must be less than 32 characters long and may only consist of the following characters: %s'), 'a-z, A-Z, 0-9, _');
+    } elseif ($valid === null) {
+        $input_errors[] = sprintf(gettext('The schedule name cannot be the internally reserved keyword "%s".'), $pconfig['name']);
+    }
+
     /* check for name conflicts */
     foreach ($a_schedules as $schedId => $schedule) {
         if ((!isset($id) || $schedId != $id) && $schedule['name'] == $pconfig['name']) {
@@ -154,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $timehourstr = $pconfig['starttime' . $x];
         $timehourstr .= "-";
         $timehourstr .= $pconfig['stoptime' . $x];
-        $timedescrstr = htmlentities($pconfig['timedescr' . $x], ENT_QUOTES, 'UTF-8');
+        $timedescrstr = $pconfig['timedescr' . $x];
         $dashpos = strpos($timestr, '-');
         if ($dashpos === false) {
               $timeparts['position'] = $timestr;
@@ -216,41 +215,32 @@ legacy_html_escape_form_data($pconfig);
 include("head.inc");
 
 ?>
-<script type="text/javascript">
+<body>
+<script>
 //<![CDATA[
 var daysSelected = "";
 var month_array = <?= json_encode($monthArray) ?>;
 var day_array = <?= json_encode($dayArray) ?>;
 var schCounter = 0;
 
-function rgb2hex(rgb) {
-  var parts = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-  if (parts == null)
-    return;
-  function hex(x) {
-    return ("0" + parseInt(x).toString(16)).slice(-2);
-  }
-  return ("#" + hex(parts[1]) + hex(parts[2]) + hex(parts[3])).toUpperCase();
-}
-
 function repeatExistingDays(){
   var tempstr, tempstrdaypos, week, daypos, dayposdone = "";
 
   var dayarray = daysSelected.split(",");
-  for (i=0; i<=dayarray.length; i++){
+  for (let i=0; i<=dayarray.length; i++){
     tempstr = dayarray[i];
     tempstrdaypos = tempstr.search("p");
     week = tempstr.substring(1,tempstrdaypos);
     week = parseInt(week);
-    dashpos = tempstr.search("-");
+    const dashpos = tempstr.search("-");
     daypos = tempstr.substring(tempstrdaypos+1, dashpos);
     daypos = parseInt(daypos);
 
-    daydone = dayposdone.search(daypos);
+    const daydone = dayposdone.search(daypos);
     tempstr = 'w' + week + 'p' + daypos;
-    daycell = eval('document.getElementById(tempstr)');
+    const daycell = document.getElementById(tempstr);
     if (daydone == "-1"){
-      if (rgb2hex(daycell.style.backgroundColor) == "#F08080")  // lightcoral
+      if (daycell.dataset['state'] == "lightcoral")
         daytogglerepeating(week,daypos,true);
       else
         daytogglerepeating(week,daypos,false);
@@ -261,11 +251,11 @@ function repeatExistingDays(){
 
 function daytogglerepeating(week,daypos,bExists){
   var tempstr, daycell, dayoriginal = "";
-  for (j=1; j<=53; j++)
+  for (let j=1; j<=53; j++)
   {
     tempstr = 'w' + j + 'p' + daypos;
-    daycell = eval('document.getElementById(tempstr)');
-    dayoriginalpos =  daysSelected.indexOf(tempstr);
+    daycell = document.getElementById(tempstr);
+    const dayoriginalpos =  daysSelected.indexOf(tempstr);
 
     //if bExists set to true, means cell is already select it
     //unselect it and remove original day from daysSelected string
@@ -273,16 +263,16 @@ function daytogglerepeating(week,daypos,bExists){
     if (daycell != null)
     {
       if (bExists){
-        daycell.style.backgroundColor = "#FFFFFF";  // white
+        daycell.dataset['state'] = "white";
       }
       else
       {
-        daycell.style.backgroundColor = "#F08080";  // lightcoral
+        daycell.dataset['state'] = "lightcoral";
       }
 
       if (dayoriginalpos != "-1")
       {
-        dayoriginalend = daysSelected.indexOf(',', dayoriginalpos);
+        const dayoriginalend = daysSelected.indexOf(',', dayoriginalpos);
         tempstr = daysSelected.substring(dayoriginalpos, dayoriginalend+1);
         daysSelected = daysSelected.replace(tempstr, "");
 
@@ -295,11 +285,12 @@ function daytoggle(id) {
   var runrepeat, tempstr = "";
   var bFoundValid = false;
 
-  iddashpos = id.search("-");
+  const iddashpos = id.search("-");
   var tempstrdaypos = id.search("p");
   var week = id.substring(1,tempstrdaypos);
   week = parseInt(week);
 
+  let idmod;
   if (iddashpos == "-1")
   {
     idmod = id;
@@ -318,12 +309,12 @@ function daytoggle(id) {
     var daycell = document.getElementById(idmod);
 
     if (daycell != null){
-      if (rgb2hex(daycell.style.backgroundColor) == "#FF0000"){  // red
-        daycell.style.backgroundColor = "#FFFFFF";  // white
-        str = id + ",";
+      if (daycell.dataset['state'] == "red"){  // red
+        daycell.dataset['state'] = "white";
+        let str = id + ",";
         daysSelected = daysSelected.replace(str, "");
       }
-      else if (rgb2hex(daycell.style.backgroundColor) == "#F08080")  // lightcoral
+      else if (daycell.dataset['state'] == "lightcoral")
       {
         daytogglerepeating(week,daypos,true);
       }
@@ -331,11 +322,11 @@ function daytoggle(id) {
       {
         if (!runrepeat)
         {
-          daycell.style.backgroundColor = "#FF0000";  // red
+          daycell.dataset['state'] = "red";  // red
         }
         else
         {
-          daycell.style.backgroundColor = "#F08080";  // lightcoral
+          daycell.dataset['state'] = "lightcoral";
           daytogglerepeating(week,daypos,false);
         }
         daysSelected += id + ",";
@@ -356,9 +347,9 @@ function update_month(){
   var indexNum = document.iform.monthsel.selectedIndex;
   var selected = document.iform.monthsel.options[indexNum].text;
 
-  for (i=0; i<=11; i++){
-    option = document.iform.monthsel.options[i].text;
-    document.popupMonthLayer = eval('document.getElementById (option)');
+  for (let month = 0; month < 12; month++){
+    let option = document.iform.monthsel.options[month].text;
+    document.popupMonthLayer = document.getElementById(option);
 
     if(selected == option) {
       document.popupMonthLayer.style.display="block";
@@ -416,23 +407,36 @@ function processEntries(){
 }
 
 function addTimeRange(){
-  var tempdayarray = daysSelected.split(",");
-  var tempstr, tempFriendlyDay, starttimehour, starttimemin, stoptimehour, nrtempFriendlyTime, rtempFriendlyTime, nrtempID, rtempID = "";
-  var stoptimemin, timeRange, tempstrdaypos, week, daypos, day, month, dashpos, nrtempTime, rtempTime, monthstr, daystr = "";
-  rtempFriendlyTime = "";
-  nrtempFriendlyTime = "";
-  nrtempID = "";
-  rtempID = "";
-  nrtempTime = "";
-  rtempTime = "";
+  var tempdayarray = daysSelected.split(","),
+    tempstr,
+    tempFriendlyDay,
+    starttimehour,
+    starttimemin,
+    stoptimehour,
+    nrtempFriendlyTime = '',
+    rtempFriendlyTime = '',
+    nrtempID = '',
+    rtempID = "",
+    stoptimemin,
+    timeRange,
+    tempstrdaypos,
+    week,
+    daypos,
+    day,
+    month,
+    dashpos,
+    nrtempTime = '',
+    rtempTime = '',
+    monthstr = '',
+    daystr = "",
+    rtempFriendlyDay = "",
+    findCurrentCounter,
+    nonrepeatingfound,
+    tempdescr;
   tempdayarray.sort();
-  rtempFriendlyDay = "";
-  monthstr = "";
-  daystr = "";
 
   //check for existing entries
-  var findCurrentCounter;
-  for (u=0; u<99; u++){
+  for (var u=0; u<99; u++){
     findCurrentCounter = document.getElementById("schedule" + u);
     if (!findCurrentCounter)
     {
@@ -443,22 +447,21 @@ function addTimeRange(){
 
   if (daysSelected != ""){
     //get days selected
-    for (i=0; i<tempdayarray.length; i++)
+    for (let i=0; i<tempdayarray.length; i++)
     {
       tempstr = tempdayarray[i];
       if (tempstr != "")
       {
         tempstrdaypos = tempstr.search("p");
-        week = tempstr.substring(1,tempstrdaypos);
-        week = parseInt(week);
+        week = parseInt(tempstr.substring(1, tempstrdaypos));
         dashpos = tempstr.search("-");
 
         if (dashpos != "-1")
         {
-          var nonrepeatingfound = true;
+          nonrepeatingfound = true;
           daypos = tempstr.substring(tempstrdaypos+1, dashpos);
           daypos = parseInt(daypos);
-          monthpos = tempstr.search("m");
+          let monthpos = tempstr.search("m");
           tempstrdaypos = tempstr.search("d");
           month = tempstr.substring(monthpos+1, tempstrdaypos);
           month = parseInt(month);
@@ -485,23 +488,19 @@ function addTimeRange(){
     var firstprint = false;
     var tempFriendlyMonthArray = monthstr.split(",");
     var tempFriendlyDayArray = daystr.split(",");
-    var currentDay, firstDay, nextDay, currentMonth, nextMonth, firstDay, firstMonth = "";
-    for (k=0; k<tempFriendlyMonthArray.length; k++){
+    var currentDay, firstDay, nextDay, firstMonth = 0;
+    for (var k=0; k<tempFriendlyMonthArray.length; k++){
       tempstr = tempFriendlyMonthArray[k];
       if (tempstr != ""){
         if (!firstDayFound)
         {
-          firstDay = tempFriendlyDayArray[k];
-          firstDay = parseInt(firstDay);
-          firstMonth = tempFriendlyMonthArray[k];
-          firstMonth = parseInt(firstMonth);
+          firstDay = parseInt(tempFriendlyDayArray[k]);
+          firstMonth = parseInt(tempFriendlyMonthArray[k]);
           firstDayFound = true;
         }
-        currentDay = tempFriendlyDayArray[k];
-        currentDay = parseInt(currentDay);
+        currentDay = parseInt(tempFriendlyDayArray[k]);
         //get next day
-        nextDay = tempFriendlyDayArray[k+1];
-        nextDay = parseInt(nextDay);
+        nextDay = parseInt(tempFriendlyDayArray[k+1]);
         //get next month
 
         currentDay++;
@@ -509,10 +508,12 @@ function addTimeRange(){
           if (firstprint)
             nrtempFriendlyTime += ", ";
           currentDay--;
-          if (currentDay != firstDay)
+          if (currentDay != firstDay) {
             nrtempFriendlyTime += month_array[firstMonth-1] + " " + firstDay + "-" + currentDay;
-          else
+          }
+          else {
             nrtempFriendlyTime += month_array[firstMonth-1] + " " + currentDay;
+          }
           firstDayFound = false;
           firstprint = true;
         }
@@ -531,24 +532,24 @@ function addTimeRange(){
       if (tempstr != ""){
         if (!firstDayFound)
         {
-          firstDay = tempFriendlyDayArray[k];
-          firstDay = parseInt(firstDay);
+          firstDay = parseInt(tempFriendlyDayArray[k]);
           firstDayFound = true;
         }
-        currentDay = tempFriendlyDayArray[k];
-        currentDay = parseInt(currentDay);
+        currentDay = parseInt(tempFriendlyDayArray[k]);
         //get next day
-        nextDay = tempFriendlyDayArray[k+1];
-        nextDay = parseInt(nextDay);
+        nextDay = parseInt(tempFriendlyDayArray[k+1]);
         currentDay++;
         if (currentDay != nextDay){
-          if (firstprint)
+          if (firstprint) {
             rtempFriendlyTime += ", ";
+          }
           currentDay--;
-          if (currentDay != firstDay)
+          if (currentDay != firstDay) {
             rtempFriendlyTime += day_array[firstDay-1] + " - " + day_array[currentDay-1];
-          else
+          }
+          else {
             rtempFriendlyTime += day_array[firstDay-1];
+          }
           firstDayFound = false;
           firstprint = true;
         }
@@ -561,7 +562,7 @@ function addTimeRange(){
     tempsortArray.sort();
     //clear tempID
     rtempID = "";
-    for (t=0; t<tempsortArray.length; t++)
+    for (let t=0; t<tempsortArray.length; t++)
     {
       if (tempsortArray[t] != ""){
         if (!isFirstdone){
@@ -575,18 +576,19 @@ function addTimeRange(){
 
 
     //get time specified
-    starttimehour =  document.getElementById("starttimehour").value
+    starttimehour =  document.getElementById("starttimehour").value;
     starttimemin = document.getElementById("starttimemin").value;
     stoptimehour = document.getElementById("stoptimehour").value;
     stoptimemin = document.getElementById("stoptimemin").value;
 
-    timeRange = "||" + starttimehour + ":";
-    timeRange += starttimemin + "-";
-    timeRange += stoptimehour + ":";
-    timeRange += stoptimemin;
+    timeRange = "||"
+    + starttimehour + ":"
+    + starttimemin + "-"
+    + stoptimehour + ":"
+    + stoptimemin;
 
     //get description for time range
-    var tempdescr = document.getElementById("timerangedescr").value
+    tempdescr = escape(document.getElementById("timerangedescr").value);
 
     if (nonrepeatingfound){
       nrtempTime += nrtempID;
@@ -594,7 +596,14 @@ function addTimeRange(){
       nrtempTime += timeRange;
       //add description
       nrtempTime += "||" + tempdescr;
-      insertElements(nrtempFriendlyTime, starttimehour, starttimemin, stoptimehour, stoptimemin, tempdescr, nrtempTime, nrtempID);
+      insertElements(nrtempFriendlyTime,
+                     starttimehour,
+                     starttimemin,
+                     stoptimehour,
+                     stoptimemin,
+                     tempdescr,
+                     nrtempTime,
+                     nrtempID);
     }
 
     if (repeatingfound){
@@ -603,7 +612,14 @@ function addTimeRange(){
       rtempTime += timeRange;
       //add description
       rtempTime += "||" + tempdescr;
-      insertElements(rtempFriendlyTime, starttimehour, starttimemin, stoptimehour, stoptimemin, tempdescr, rtempTime, rtempID);
+      insertElements(rtempFriendlyTime,
+                     starttimehour,
+                     starttimemin,
+                     stoptimehour,
+                     stoptimemin,
+                     tempdescr,
+                     rtempTime,
+                     rtempID);
     }
 
   }
@@ -617,35 +633,35 @@ function addTimeRange(){
 function insertElements(tempFriendlyTime, starttimehour, starttimemin, stoptimehour, stoptimemin, tempdescr, tempTime, tempID){
 
     //add it to the schedule list
-    d = document;
-    tbody = d.getElementById("scheduletable").getElementsByTagName("tbody").item(0);
-    tr = d.createElement("tr");
-    td = d.createElement("td");
-    td.innerHTML= "<span class='vexpl'>" + tempFriendlyTime + "<\/span>";
+    let d = document;
+    let tbody = document.getElementById("scheduletable").getElementsByTagName("tbody").item(0);
+    var tr = document.createElement("tr");
+    var td = document.createElement("td");
+    td.innerHTML= "<span>"+tempFriendlyTime+"</span>";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML="<input type='text' readonly name='starttime" + schCounter + "' id='starttime" + schCounter + "' style=' word-wrap:break-word; width:100%; border:0px solid;' value='" + starttimehour + ":" + starttimemin + "' />";
+    td = document.createElement("td");
+    td.innerHTML="<input type='text' readonly='readonly' name='starttime"+schCounter+"' id='starttime"+schCounter+"' style=' word-wrap:break-word; width:100%; border:0px solid;' value='"+starttimehour+":"+starttimemin+"' />";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML="<input type='text' readonly name='stoptime" + schCounter + "' id='stoptime" + schCounter + "' style=' word-wrap:break-word; width:100%; border:0px solid;' value='" + stoptimehour + ":" + stoptimemin + "' />";
+    td = document.createElement("td");
+    td.innerHTML="<input type='text' readonly='readonly' name='stoptime"+schCounter+"' id='stoptime"+schCounter+"' style=' word-wrap:break-word; width:100%; border:0px solid;' value='"+stoptimehour+":"+stoptimemin+"' />";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML="<input type='text' readonly name='timedescr" + schCounter + "' id='timedescr" + schCounter + "' style=' word-wrap:break-word; width:100%; border:0px solid;' value='" + tempdescr + "' />";
+    td = document.createElement("td");
+    td.innerHTML="<input type='text' readonly='readonly' name='timedescr"+schCounter+"' id='timedescr"+schCounter+"' style=' word-wrap:break-word; width:100%; border:0px solid;' value='"+tempdescr+"' />";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML = "<a onclick='editRow(\"" + tempTime + "\",this); return false;' href='#' class=\"btn btn-default btn-xs\"><span class=\"glyphicon glyphicon-pencil\"></span></\a>";
+    td = document.createElement("td");
+    td.innerHTML = "<a onclick='editRow(\""+tempTime+"\",this); return false;' href='#' class=\"btn btn-default btn-xs\"><span class=\"fa fa-pencil fa-fw\"></span></a>";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML = "<a onclick='removeRow(this); return false;' href='#' class=\"btn btn-default btn-xs\"><span class=\"fa fa-trash text-muted\"></span></\a>";
+    td = document.createElement("td");
+    td.innerHTML = "<a onclick='removeRow(this); return false;' href='#' class=\"btn btn-default btn-xs\"><span class=\"fa fa-trash fa-fw\"></span></a>";
     tr.appendChild(td);
 
-    td = d.createElement("td");
-    td.innerHTML="<input type='hidden' id='schedule" + schCounter + "' name='schedule" + schCounter + "' value='" + tempID + "' />";
+    td = document.createElement("td");
+    td.innerHTML="<input type='hidden' id='schedule"+schCounter+"' name='schedule"+schCounter+"' value='"+tempID+"' />";
     tr.appendChild(td);
     tbody.appendChild(tr);
 
@@ -662,15 +678,15 @@ function clearCalendar(){
   var tempstr, daycell = "";
   //clear days selected
   daysSelected = "";
-  //loop through all 52 weeks
-  for (j=1; j<=53; j++)
+  //loop through all 53 weeks
+  for (let week=1; week<=53; week++)
   {
     //loop through all 7 days
-    for (k=1; k<8; k++){
-      tempstr = 'w' + j + 'p' + k;
-      daycell = eval('document.getElementById(tempstr)');
+    for (let day = 1; day <= 7; day++){
+      tempstr = 'w' + week + 'p' + day;
+      daycell = document.getElementById(tempstr);
       if (daycell != null){
-        daycell.style.backgroundColor = "#FFFFFF";  // white
+        daycell.dataset['state'] = "white";
       }
     }
   }
@@ -688,9 +704,7 @@ function clearDescr(){
 }
 
 function editRow(incTime, el) {
-  var check = checkForRanges();
-
-  if (check){
+  if (checkForRanges()){
 
     //reset calendar and time
     clearCalendar();
@@ -698,11 +712,11 @@ function editRow(incTime, el) {
 
     var starttimehour, descr, days, tempstr, starttimemin, hours, stoptimehour, stoptimemin = "";
 
-    tempArray = incTime.split ("||");
+    let tempArray = incTime.split ("||");
 
     days = tempArray[0];
     hours = tempArray[1];
-    descr = tempArray[2];
+    descr = escape(tempArray[2]);
 
     var tempdayArray = days.split(",");
     var temphourArray = hours.split("-");
@@ -721,11 +735,11 @@ function editRow(incTime, el) {
     document.getElementById("timerangedescr").value = descr;
 
     //toggle the appropriate days
-    for (i=0; i<tempdayArray.length; i++)
+    for (let i=0; i<tempdayArray.length; i++)
     {
       if (tempdayArray[i]){
         var tempweekstr = tempdayArray[i];
-        dashpos = tempweekstr.search("-");
+        let dashpos = tempweekstr.search("-");
 
         if (dashpos == "-1")
         {
@@ -744,34 +758,31 @@ function editRow(incTime, el) {
 }
 
 function removeRownoprompt(el) {
-    var cel;
-    while (el && el.nodeName.toLowerCase() != "tr")
+    while (el && el.nodeName.toLowerCase() != "tr") {
       el = el.parentNode;
-
-    if (el && el.parentNode) {
-  cel = el.getElementsByTagName("td").item(0);
-  el.parentNode.removeChild(el);
+    }
+    if (el) {
+      el.remove();
     }
 }
 
 
 function removeRow(el) {
-  var check = confirm ("Do you really want to delete this time range?");
-  if (check){
-      var cel;
-      while (el && el.nodeName.toLowerCase() != "tr")
-        el = el.parentNode;
-
-      if (el && el.parentNode) {
-    cel = el.getElementsByTagName("td").item(0);
-    el.parentNode.removeChild(el);
-      }
+  if (confirm("Do you really want to delete this time range?")){
+    while (el && el.nodeName.toLowerCase() != "tr") {
+      el = el.parentNode;
+    }
+    if (el) {
+      el.remove();
+    }
   }
 }
+
+// XXX Workaround: hook_stacked_form_tables breaks CSS query otherwise
+$( function() { $('#iform td').css({ 'background-color' : '' }); })
+
 //]]>
 </script>
-
-<body>
 <?php include("fbegin.inc");  echo $jscriptstr; ?>
   <section class="page-content-main">
     <div class="container-fluid">
@@ -783,14 +794,14 @@ function removeRow(el) {
                   <table class="table table-striped opnsense_standard_table_form">
                     <tbody>
                       <tr>
-                        <td width="15%"><strong><?=gettext("Schedule information");?></strong></td>
-                        <td width="85%"  align="right">
+                        <td style="width:15%"><strong><?=gettext("Schedule information");?></strong></td>
+                        <td style="width:85%; text-align:right">
                           <small><?=gettext("full help"); ?> </small>
-                          <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                          <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                         </td>
                       </tr>
                       <tr>
-                        <td><a id="help_for_name" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Schedule Name");?></td>
+                        <td><i class="fa fa-info-circle text-muted"></i> <?= gettext('Name') ?></td>
                         <td>
 <?php
                             if (is_schedule_inuse($pconfig['name']) && isset($id)): ?>
@@ -802,9 +813,6 @@ function removeRow(el) {
 <?php
                             else: ?>
                           <input name="name" type="text" id="name" value="<?=$pconfig['name'];?>" />
-                          <div class="hidden" for="help_for_name">
-                            <?=gettext("The name of the alias may only consist of the characters a-z, A-Z and 0-9");?>
-                          </div>
 <?php
                             endif; ?>
                         </td>
@@ -813,7 +821,7 @@ function removeRow(el) {
                         <td><a id="help_for_description" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description");?></td>
                         <td>
                           <input name="descr" type="text" id="descr" value="<?=$pconfig['descr'];?>" /><br />
-                          <div class="hidden" for="help_for_name">
+                          <div class="hidden" data-for="help_for_name">
                             <?=gettext("You may enter a description here for your reference (not parsed).");?>
                           </div>
                         </td>
@@ -855,17 +863,17 @@ function removeRow(el) {
                               $positioncounter = 1;//7 for Sun, 1 for Mon, 2 for Tues, etc
 ?>
                             <div id="<?=date("F_y",mktime(0, 0, 0, date($monthcounter), 1, date($yearcounter)));?>" style=" position:relative; display:<?= $firstmonth ? "block" : "none";?>">
-                              <table border="1" cellspacing="1" cellpadding="1" id="calTable<?=$monthcounter . $yearcounter;?>" class="table table-condensed" summary="month">
+                              <table id="calTable<?=$monthcounter . $yearcounter;?>" class="table table-condensed table-bordered">
                                 <thead>
-                                  <tr><td colspan="7" align="center"><?= date("F_Y", mktime(0, 0, 0, date($monthcounter), 1, date($yearcounter)));?></td></tr>
+                                  <tr><td colspan="7" style="text-align:center"><?= date("F_Y", mktime(0, 0, 0, date($monthcounter), 1, date($yearcounter)));?></td></tr>
                                   <tr>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p1');"><u><?=gettext("Mon");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p2');"><u><?=gettext("Tue");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p3');"><u><?=gettext("Wed");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p4');"><u><?=gettext("Thu");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p5');"><u><?=gettext("Fri");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p6');"><u><?=gettext("Sat");?></u></td>
-                                    <td align="center" style="cursor: pointer;" onclick="daytoggle('w1p7');"><u><?=gettext("Sun");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p1');"><u><?=gettext("Mon");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p2');"><u><?=gettext("Tue");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p3');"><u><?=gettext("Wed");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p4');"><u><?=gettext("Thu");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p5');"><u><?=gettext("Fri");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p6');"><u><?=gettext("Sat");?></u></td>
+                                    <td style="text-align:center; cursor: pointer;" onclick="daytoggle('w1p7');"><u><?=gettext("Sun");?></u></td>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -878,20 +886,20 @@ function removeRow(el) {
                                         echo "<tr>";
                                       }
                                       if ($firstdayofmonth == $positioncounter){?>
-                                        <td align="center" style="cursor: pointer;" class="listr" id="w<?=$weekcounter;?>p<?=$positioncounter;?>" onclick="daytoggle('w<?=$weekcounter;?>p<?=$positioncounter;?>-m<?=$monthcounter;?>d<?=$daycounter;?>');">
+                                        <td style="text-align:center; cursor: pointer;" id="w<?=$weekcounter;?>p<?=$positioncounter;?>" onclick="daytoggle('w<?=$weekcounter;?>p<?=$positioncounter;?>-m<?=$monthcounter;?>d<?=$daycounter;?>');">
                                         <?php
                                           echo $daycounter;
                                           $daycounter++;
                                           $firstdayprinted = TRUE;
                                           echo "</td>";
                                       } elseif ($firstdayprinted == TRUE && $daycounter <= $numberofdays){?>
-                                      <td align="center" style="cursor: pointer;" class="listr" id="w<?=$weekcounter;?>p<?=$positioncounter;?>" onclick="daytoggle('w<?=$weekcounter;?>p<?=$positioncounter;?>-m<?=$monthcounter;?>d<?=$daycounter;?>');">
+                                      <td style="text-align:center; cursor: pointer;" id="w<?=$weekcounter;?>p<?=$positioncounter;?>" onclick="daytoggle('w<?=$weekcounter;?>p<?=$positioncounter;?>-m<?=$monthcounter;?>d<?=$daycounter;?>');">
                                         <?php
                                           echo $daycounter;
                                           $daycounter++;
                                           echo "</td>";
                                       } else {
-                                        echo "<td align=\"center\" class=\"listr\"></td>";
+                                        echo "<td style=\"text-align:center\"></td>";
                                       }
 
                                       if ($positioncounter == 7 || $daycounter > $numberofdays) {
@@ -913,7 +921,7 @@ function removeRow(el) {
                               }
                             } //end for loop
 ?>
-                          <div class="hidden" for="help_for_month">
+                          <div class="hidden" data-for="help_for_month">
                             <br />
                             <?=gettext("Click individual date to select that date only. Click the appropriate weekday Header to select all occurrences of that weekday.");?>
                           </div>
@@ -922,7 +930,7 @@ function removeRow(el) {
                       <tr>
                         <td><a id="help_for_time" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Time");?></td>
                         <td>
-                          <table cellspacing="2" class="tabcont" summary="time">
+                          <table class="tabcont">
                             <tr>
                               <td><?=gettext("Start Time");?></td>
                               <td><?=gettext("Stop Time");?></td>
@@ -966,7 +974,7 @@ function removeRow(el) {
                               </td>
                             </tr>
                           </table>
-                          <div class="hidden" for="help_for_time">
+                          <div class="hidden" data-for="help_for_time">
                             <br />
                           <?=gettext("Select the time range for the day(s) selected on the Month(s) above. A full day is 0:00-23:59.")?>
                           </div>
@@ -976,7 +984,7 @@ function removeRow(el) {
                         <td><a id="help_for_timerange_desc" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Time Range Description")?></td>
                         <td>
                           <input name="timerangedescr" type="text" id="timerangedescr"/>
-                          <div class="hidden" for="help_for_timerange_desc">
+                          <div class="hidden" data-for="help_for_timerange_desc">
                             <?=gettext("You may enter a description here for your reference (not parsed).")?>
                           </div>
                         </td>
@@ -984,23 +992,23 @@ function removeRow(el) {
                       <tr>
                         <td>&nbsp;</td>
                         <td>
-                          <input type="button" value="<?=gettext("Add Time");?>"  class="btn btn-default"  onclick="javascript:processEntries();" />&nbsp;&nbsp;&nbsp;
-                          <input type="button" value="<?=gettext("Clear Selection");?>" class="btn btn-default" onclick="javascript:clearCalendar(); clearTime(); clearDescr();" />
+                          <input type="button" value="<?= html_safe(gettext('Add Time')) ?>" class="btn btn-default" onclick="javascript:processEntries();" />&nbsp;&nbsp;&nbsp;
+                          <input type="button" value="<?= html_safe(gettext('Clear Selection')) ?>" class="btn btn-default" onclick="javascript:clearCalendar(); clearTime(); clearDescr();" />
                         </td>
                       </tr>
                       <tr>
-                        <th colspan="2" valign="top" class="listtopic"><?=gettext("Schedule repeat");?></td>
+                        <th colspan="2"><?= gettext('Schedule repeat') ?></th>
                       </tr>
                       <tr>
                         <td><?=gettext("Configured Ranges");?></td>
                         <td>
-                          <table id="scheduletable" summary="range">
+                          <table id="scheduletable">
                             <tbody>
                               <tr>
-                                <td width="35%"><?=gettext("Day(s)");?></td>
-                                <td width="12%"><?=gettext("Start Time");?></td>
-                                <td width="11%"><?=gettext("Stop Time");?></td>
-                                <td width="42%"><?=gettext("Description");?></td>
+                                <td style="width:35%"><?=gettext("Day(s)");?></td>
+                                <td style="width:12%"><?=gettext("Start Time");?></td>
+                                <td style="width:11%"><?=gettext("Stop Time");?></td>
+                                <td style="width:42%"><?=gettext("Description");?></td>
                               </tr>
                               <?php
                               if (isset($pconfig['timerange'])){
@@ -1127,10 +1135,10 @@ function removeRow(el) {
                                   <input type='text' readonly='readonly' name='timedescr<?=$counter; ?>' id='timedescr<?=$counter; ?>' style=' word-wrap:break-word; width:100%; border:0px solid;' value='<?=$timedescr; ?>' />
                                 </td>
                                 <td>
-                                  <a onclick='editRow("<?=$tempTime; ?>",this); return false;' href='#' class="btn btn-default"><span class="glyphicon glyphicon-pencil"></span></a>
+                                  <a onclick='editRow("<?=$tempTime; ?>",this); return false;' href='#' class="btn btn-default"><span class="fa fa-pencil fa-fw"></span></a>
                                 </td>
                                 <td>
-                                  <a onclick='removeRow(this); return false;' href='#' class="btn btn-default"><span class="fa fa-trash text-muted"></span></a>
+                                  <a onclick='removeRow(this); return false;' href='#' class="btn btn-default"><span class="fa fa-trash fa-fw"></span></a>
                                 </td>
                                 <td>
                                   <input type='hidden' id='schedule<?=$counter; ?>' name='schedule<?=$counter; ?>' value='<?=$tempID; ?>' />
@@ -1149,8 +1157,8 @@ function removeRow(el) {
                     <tr>
                       <td>&nbsp;</td>
                       <td>
-                        <input id="submit" name="submit" type="submit" onclick="return checkForRanges();" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
-                        <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/firewall_schedule.php'" />
+                        <input id="submit" name="submit" type="submit" onclick="return checkForRanges();" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
+                        <input type="button" class="btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/firewall_schedule.php'" />
                         <?php if (isset($id)): ?>
                           <input name="id" type="hidden" value="<?=$id;?>" />
                         <?php endif; ?>

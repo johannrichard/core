@@ -2,7 +2,7 @@
 
 /*
     Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2009 Scott Ullrich
+    Copyright (C) 2009 Scott Ullrich <sullrich@gmail.com>
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
@@ -130,7 +130,7 @@ if (!empty($config['widgets']['rsswidgettextlength']) && is_numeric($config['wid
       </tr>
       <tr>
         <td colspan="2">
-          <input id="submitc" name="submitc" type="submit" class="btn btn-primary formbtn" value="<?= gettext('Save') ?>" />
+          <input id="submitc" name="submitc" type="submit" class="btn btn-primary formbtn" value="<?= html_safe(gettext('Save')) ?>" />
         </td>
       </tr>
     </table>
@@ -166,7 +166,7 @@ if (!empty($config['widgets']['rsswidgettextlength']) && is_numeric($config['wid
 </div>
 
 <!-- needed to display the widget settings menu -->
-<script type="text/javascript">
+<script>
 //<![CDATA[
   $("#rss-configure").removeClass("disabled");
 //]]>

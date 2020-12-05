@@ -1,40 +1,38 @@
 <?php
 
 /*
-    Copyright (c) 2015 Franco Fichtner <franco@opnsense.org>
-    Copyright (c) 2008 Tellnet AG
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (c) 2015 Franco Fichtner <franco@opnsense.org>
+ * Copyright (c) 2008 Tellnet AG
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("system.inc");
-require_once("services.inc");
 require_once("interfaces.inc");
+require_once("plugins.inc.d/opendns.inc");
 
-if (empty($config['opendns']) || !is_array($config['opendns'])) {
-    $config['opendns'] = array();
-}
+config_read_array('opendns');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig['enable'] = isset($config['opendns']['enable']);
@@ -62,59 +60,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 
     if (!empty($pconfig['test'])) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, sprintf( 'https://updates.opendns.com/nic/update?hostname=%s', $pconfig['host']));
-        curl_setopt($ch, CURLOPT_USERPWD, sprintf('%s:%s', $pconfig['username'], $pconfig['password']));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $output = curl_exec($ch);
-        curl_close($ch);
-        $test_results = explode("\r\n", $output);
+        $test_results = explode("\r\n", opendns_register($pconfig));
     } elseif (count($input_errors) == 0) {
-        $refresh = $pconfig['enable'] != $config['opendns']['enable'];
         $config['opendns']['enable'] = !empty($pconfig['enable']);
         $config['opendns']['username'] = $pconfig['username'];
         $config['opendns']['password'] = $pconfig['password'];
         $config['opendns']['host'] = $pconfig['host'];
-        if ($refresh) {
-            if ($config['opendns']['enable']) {
-                $config['system']['dnsserver'] = array();
-                $v4_server = array('208.67.222.222', '208.67.220.220');
-                $v6_server = array('2620:0:ccc::2', '2620:0:ccd::2');
-                if (isset($config['system']['prefer_ipv4'])) {
-                    $config['system']['dnsserver'][] = $v4_server[0];
-                    $config['system']['dnsserver'][] = $v4_server[1];
-                    if (isset($config['system']['ipv6allow'])) {
-                        $config['system']['dnsserver'][] = $v6_server[0];
-                        $config['system']['dnsserver'][] = $v6_server[1];
-                    }
-                } else {
-                    if (isset($config['system']['ipv6allow'])) {
-                        $config['system']['dnsserver'][] = $v6_server[0];
-                        $config['system']['dnsserver'][] = $v6_server[1];
-                    }
-                    $config['system']['dnsserver'][] = $v4_server[0];
-                    $config['system']['dnsserver'][] = $v4_server[1];
+        if ($config['opendns']['enable']) {
+            $config['system']['dnsserver'] = array();
+            $v4_server = array('208.67.222.222', '208.67.220.220');
+            $v6_server = array('2620:0:ccc::2', '2620:0:ccd::2');
+            if (isset($config['system']['prefer_ipv4'])) {
+                $config['system']['dnsserver'][] = $v4_server[0];
+                $config['system']['dnsserver'][] = $v4_server[1];
+                if (isset($config['system']['ipv6allow'])) {
+                    $config['system']['dnsserver'][] = $v6_server[0];
+                    $config['system']['dnsserver'][] = $v6_server[1];
                 }
-                $config['system']['dnsallowoverride'] = false;
             } else {
-                $config['system']['dnsserver'] = array();
-                $config['system']['dnsserver'][] = '';
-                $config['system']['dnsallowoverride'] = true;
+                if (isset($config['system']['ipv6allow'])) {
+                    $config['system']['dnsserver'][] = $v6_server[0];
+                    $config['system']['dnsserver'][] = $v6_server[1];
+                }
+                $config['system']['dnsserver'][] = $v4_server[0];
+                $config['system']['dnsserver'][] = $v4_server[1];
             }
+            if (isset($config['system']['dnsallowoverride'])) {
+                unset($config['system']['dnsallowoverride']);
+            }
+        } else {
+            $config['system']['dnsserver'] = array();
+            $config['system']['dnsserver'][] = '';
+            $config['system']['dnsallowoverride'] = true;
         }
         write_config('OpenDNS filter configuration change');
-        if ($refresh) {
-            system_resolvconf_generate();
-            services_dhcpd_configure();
-            $savemsg = get_std_save_message();
-        }
+        system_resolvconf_generate();
+        plugins_configure('dhcp');
+        $savemsg = get_std_save_message();
     }
 }
 
 legacy_html_escape_form_data($pconfig);
-include 'head.inc';
-?>
 
+include 'head.inc';
+
+?>
 <body>
 
 <?php include 'fbegin.inc'; ?>
@@ -134,10 +124,10 @@ include 'head.inc';
             <table class="table table-striped opnsense_standard_table_form">
               <thead>
                 <tr>
-                  <td width="22%"><strong><?=gettext('OpenDNS Setup'); ?></strong></td>
-                  <td width="78%" align="right">
+                  <td style="width:22%"><strong><?=gettext('OpenDNS Setup'); ?></strong></td>
+                  <td style="width:78%; text-align:right">
                     <small><?=gettext("full help"); ?> </small>
-                    <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                    <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                     &nbsp;
                   </td>
                 </tr>
@@ -148,7 +138,7 @@ include 'head.inc';
                   <td>
                     <input name="enable" type="checkbox" id="enable" value="yes" <?=!empty($pconfig['enable']) ? 'checked="checked"' : "";?> />
                     <strong><?=gettext('Filter DNS requests using OpenDNS'); ?></strong>
-                    <div class="hidden" for="help_for_enable">
+                    <div class="hidden" data-for="help_for_enable">
                       <?= sprintf(gettext(
                         'Enabling the OpenDNS service will overwrite DNS servers configured ' .
                         'via the General Setup page as well as ignore any DNS servers learned ' .
@@ -162,7 +152,7 @@ include 'head.inc';
                   <td><a id="help_for_username" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Username'); ?></td>
                   <td>
                     <input name="username" type="text" id="username" size="20" value="<?=$pconfig['username'];?>" />
-                    <div class="hidden" for="help_for_username">
+                    <div class="hidden" data-for="help_for_username">
                       <?=gettext(
                         'Signon Username to log into your OpenDNS dashboard. ' .
                         'It is used to automatically update the IP address of ' .
@@ -181,7 +171,7 @@ include 'head.inc';
                   <td><a id="help_for_host" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Network'); ?></td>
                   <td>
                     <input name="host" type="text" id="host" size="30" value="<?=$pconfig['host'];?>" />
-                    <div class="hidden" for="help_for_host">
+                    <div class="hidden" data-for="help_for_host">
                       <?= sprintf(gettext(
                         'Enter the network name configured on the %sNetworks ' .
                         'Dashboard of OpenDNS%s under \'Manage your networks\'. ' .
@@ -204,8 +194,8 @@ include 'head.inc';
                       }
 
                       echo sprintf(
-                        '<span class="glyphicon glyphicon-%s"></span> %s<br />',
-                        strpos($result, 'good') === 0 ? 'ok text-success' : 'remove text-danger',
+                        '<i class="fa fa-%s"></i> %s<br />',
+                        strpos($result, 'good') === 0 ? 'check text-success' : 'times text-danger',
                         $result
                       );
                     }?>
@@ -216,8 +206,8 @@ include 'head.inc';
                 <tr>
                   <td>&nbsp;</td>
                   <td>
-                    <input name="submit" type="submit" class="btn btn-primary" value="<?=gettext('Save');?>" />
-                    <input name="test" type="submit" class="btn btn-primary" value="<?=gettext('Test/Update');?>" />
+                    <input name="submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
+                    <input name="test" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Test/Update'));?>" />
                   </td>
                 </tr>
               </tbody>

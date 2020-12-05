@@ -1,39 +1,70 @@
 <?php
 
 /*
-    Copyright (C) 2016 Deciso B.V.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2016 Deciso B.V.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
 
+/**
+ * Return array of possible TOS values
+ */
+function filter_tos_values()
+{
+    $ret = array(
+        '' => gettext('Do not change'),
+        'lowdelay' => gettext('lowdelay'),
+        'critical' => gettext('critical'),
+        'inetcontrol' => gettext('inetcontrol'),
+        'netcontrol' => gettext('netcontrol'),
+        'throughput' => gettext('throughput'),
+        'reliability' => gettext('reliability'),
+        'ef' => 'EF',
+    );
+
+    foreach (array(11, 12, 13, 21, 22, 23, 31, 32, 33, 41 ,42, 43) as $val) {
+        $ret["af$val"] = "AF$val";
+    }
+
+    foreach (range(0, 7) as $val) {
+        $ret["cs$val"] = "CS$val";
+    }
+
+    foreach (range(0, 255) as $val) {
+        $ret['0x' . dechex($val)] = sprintf('0x%02X', $val);
+    }
+
+    return $ret;
+}
 
 /**
  * fetch list of selectable networks to use in form
  */
-function formNetworks() {
+function formNetworks()
+{
     $networks = array();
     $networks["any"] = gettext("any");
     // foreach (get_configured_interface_with_descr() as $ifent => $ifdesc) {
@@ -43,13 +74,7 @@ function formNetworks() {
     return $networks;
 }
 
-
-if (!isset($config['filter']['scrub']['rule'])) {
-    $config['filter']['scrub'] = array();
-    $config['filter']['scrub']['rule'] = array();
-}
-$a_scrub = &$config['filter']['scrub']['rule'];
-
+$a_scrub = &config_read_array('filter', 'scrub', 'rule');
 
 // define form fields
 $config_fields = array('interface', 'proto', 'srcnot', 'src', 'srcmask', 'dstnot', 'dst', 'dstmask', 'dstport',
@@ -133,12 +158,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $input_errors[] = gettext("Please specify a valid number for min ttl (0-255).");
     }
 
-    if (count($input_errors)  == 0) {
+    if (count($input_errors) == 0) {
         $scrubent = array();
         foreach ($config_fields as $fieldname) {
             if (!empty($pconfig[$fieldname])) {
                 if (is_array($pconfig[$fieldname])) {
-                     $scrubent[$fieldname] = implode(",", $pconfig[$fieldname]);
+                     $scrubent[$fieldname] = implode(',', $pconfig[$fieldname]);
                 } else  {
                     $scrubent[$fieldname] = trim($pconfig[$fieldname]);
                 }
@@ -176,7 +201,7 @@ include("head.inc");
 ?>
 
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
       // select / input combination, link behaviour
       // when the data attribute "data-other" is selected, display related input item(s)
@@ -263,17 +288,17 @@ include("head.inc");
                 <div class="table-responsive">
                   <table class="table table-striped opnsense_standard_table_form">
                   <tr>
-                    <td valign="top"><strong><?=gettext("Edit Firewall scrub rule");?></strong></td>
-                    <td align="right">
+                    <td style="width:22%"><strong><?=gettext("Edit Firewall scrub rule");?></strong></td>
+                    <td style="width:78%;text-align:right">
                       <small><?=gettext("full help"); ?> </small>
-                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                     </td>
                   </tr>
                   <tr>
-                    <td width="22%"><a id="help_for_disabled" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Disabled"); ?></td>
-                    <td width="78%">
+                    <td style="width:22%"><a id="help_for_disabled" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Disabled"); ?></td>
+                    <td style="width:78%">
                       <input name="disabled" type="checkbox" id="disabled" value="yes" <?= !empty($pconfig['disabled']) ? "checked=\"checked\"" : ""; ?> />
-                      <div class="hidden" for="help_for_disabled">
+                      <div class="hidden" data-for="help_for_disabled">
                         <strong><?=gettext("Disable this rule"); ?></strong><br />
                         <?=gettext("Set this option to disable this rule without removing it from the list."); ?>
                       </div>
@@ -297,7 +322,7 @@ include("head.inc");
 <?php
                     endforeach; ?>
                         </select>
-                        <div class="hidden" for="help_for_interface">
+                        <div class="hidden" data-for="help_for_interface">
                           <?=gettext("Choose on which interface packets must come in to match this rule.");?>
                         </div>
                     </td>
@@ -330,7 +355,7 @@ include("head.inc");
 <?php
                       endforeach; ?>
                       </select>
-                      <div class="hidden" for="help_for_protocol">
+                      <div class="hidden" data-for="help_for_protocol">
                         <?=gettext("Choose which IP protocol this rule should match.");?> <br />
                       </div>
                     </td>
@@ -339,7 +364,7 @@ include("head.inc");
                     <td> <a id="help_for_src_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Source") . " / ".gettext("Invert");?> </td>
                     <td>
                       <input name="srcnot" type="checkbox" value="yes" <?= !empty($pconfig['srcnot']) ? "checked=\"checked\"" : "";?> />
-                      <div class="hidden" for="help_for_src_invert">
+                      <div class="hidden" data-for="help_for_src_invert">
                         <?=gettext("Use this option to invert the sense of the match."); ?>
                       </div>
                     </td>
@@ -370,10 +395,10 @@ include("head.inc");
                         <tr>
                           <td>
                             <div>
-                              <table border="0" cellpadding="0" cellspacing="0">
+                              <table style="border:0;">
                                 <tbody>
                                   <tr>
-                                      <td width="348px">
+                                      <td style="width:348px">
                                         <!-- updates to "other" option in  src -->
                                         <input type="text" id="src_address" for="src" value="<?=$pconfig['src'];?>" aria-label="<?=gettext("Source address");?>"/>
                                       </td>
@@ -396,8 +421,8 @@ include("head.inc");
                   <tr>
                     <td><a id="help_for_srcport" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Source port"); ?></td>
                     <td>
-                      <div style="display:hidden;">
-                          <input type="button" class="btn btn-default" value="<?=gettext("Advanced"); ?>" id="show_srcport_adv" />
+                      <div>
+                        <input type="button" class="btn btn-default" value="<?= html_safe(gettext('Advanced')) ?>" id="show_srcport_adv" />
                       </div>
                       <div id="show_srcport" style="display:none;">
                       <table class="table table-condensed">
@@ -429,7 +454,7 @@ include("head.inc");
                         </tbody>
                       </table>
                       </div>
-                      <div class="hidden" for="help_for_srcport">
+                      <div class="hidden" data-for="help_for_srcport">
                         <?=gettext("Specify the port or port range for the destination of the packet for this mapping."); ?><br/>
                         <?=gettext("To specify a range, use from:to (example 81:85).");?>
                       </div>
@@ -439,7 +464,7 @@ include("head.inc");
                     <td> <a id="help_for_dst_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Destination") . " / ".gettext("Invert");?> </td>
                     <td>
                       <input name="dstnot" type="checkbox" value="yes" <?= !empty($pconfig['dstnot']) ? "checked=\"checked\"" : "";?> />
-                      <div class="hidden" for="help_for_dst_invert">
+                      <div class="hidden" data-for="help_for_dst_invert">
                         <?=gettext("Use this option to invert the sense of the match."); ?>
                       </div>
                     </td>
@@ -469,10 +494,10 @@ include("head.inc");
                         </tr>
                         <tr>
                           <td>
-                            <table border="0" cellpadding="0" cellspacing="0">
+                            <table style="border:0;">
                               <tbody>
                                 <tr>
-                                    <td width="348px">
+                                    <td style="width:348px">
                                       <!-- updates to "other" option in  src -->
                                       <input  type="text" id="dst_address" for="dst" value="<?=$pconfig['dst'];?>" aria-label="<?=gettext("Destination address");?>"/>
                                     </td>
@@ -522,7 +547,7 @@ include("head.inc");
                           </tr>
                         </tbody>
                       </table>
-                      <div class="hidden" for="help_for_dstport">
+                      <div class="hidden" data-for="help_for_dstport">
                         <?=gettext("Specify the port or port range for the destination of the packet for this mapping."); ?><br/>
                         <?=gettext("To specify a range, use from:to (example 81:85).");?>
                       </div>
@@ -532,7 +557,7 @@ include("head.inc");
                     <td><a id="help_for_descr" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description"); ?></td>
                     <td>
                       <input name="descr" type="text" class="formfld unknown" id="descr" size="40" value="<?=$pconfig['descr'];?>" />
-                      <div class="hidden" for="help_for_descr">
+                      <div class="hidden" data-for="help_for_descr">
                         <?=gettext("You may enter a description here for your reference (not parsed)."); ?>
                       </div>
                     </td>
@@ -549,64 +574,51 @@ include("head.inc");
                     <td colspan="2"><strong><?=gettext("Normalizations");?></strong></td>
                   </tr>
                   <tr>
-                      <td width="22%"><a id="help_for_maxmss" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Max mss"); ?></td>
-                      <td width="78%">
+                      <td style="width:22%"><a id="help_for_maxmss" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Max mss"); ?></td>
+                      <td style="width:78%">
                           <input name="max-mss" type="text" value="<?=$pconfig['max-mss'];?>" />
-                          <div class="hidden" for="help_for_maxmss">
+                          <div class="hidden" data-for="help_for_maxmss">
                             <?=gettext("Enforces a maximum MSS for matching TCP packets."); ?>
                           </div>
                       </td>
                   </tr>
                   <tr>
-                      <td width="22%"><a id="help_for_tos" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("TOS"); ?></td>
-                      <td width="78%">
+                      <td style="width:22%"><i class="fa fa-info-circle text-muted"></i> <?=gettext('TOS / DSCP'); ?></td>
+                      <td style="width:78%">
                           <select name="set-tos" class="selectpicker" data-size="5" data-width="auto"  data-live-search="true">
-                            <option value="" <?=empty($pconfig['set-tos']) ? "selected=\"selected\"" : "";?>>
-                              <?=gettext("Do not change");?>
-                            </option>
-                            <option value="lowdelay" <?=$pconfig['set-tos'] == 'lowdelay' ? "selected=\"selected\"" : "";?>>
-                              <?=gettext("lowdelay");?>
-                            </option>
-                            <option value="throughput" <?=$pconfig['set-tos'] == 'throughput' ? "selected=\"selected\"" : "";?>>
-                              <?=gettext("throughput");?>
-                            </option>
-                            <option value="reliability" <?=$pconfig['set-tos'] == 'reliability' ? "selected=\"selected\"" : "";?>>
-                              <?=gettext("reliability");?>
+<?php
+                            foreach (filter_tos_values() as $tos_value => $tos_label): ?>
+                            <option value="<?= $tos_value ?>" <?= $tos_value == $pconfig['set-tos'] ? 'selected="selected"' : '' ?>>
+                                <?= $tos_label ?>
                             </option>
 <?php
-                            for ($i = 0; $i < 256; $i++):
-                                $tos_val = "0x".dechex($i) ?>
-                            <option value="<?=$tos_val;?>" <?= $tos_val == $pconfig['set-tos'] ? "selected=\"selected\"" : ""; ?>>
-                                <?=$tos_val;?>
-                            </option>
-<?php
-                            endfor; ?>
+                            endforeach ?>
                           </select>
                       </td>
                   </tr>
                   <tr>
-                      <td width="22%"><a id="help_for_minttl" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Min ttl"); ?></td>
-                      <td width="78%">
+                      <td style="width:22%"><a id="help_for_minttl" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Minimum TTL') ?></td>
+                      <td style="width:78%">
                           <input name="min-ttl" type="text" value="<?=$pconfig['min-ttl'];?>" />
-                          <div class="hidden" for="help_for_minttl">
+                          <div class="hidden" data-for="help_for_minttl">
                             <?=gettext("Enforces a minimum TTL for matching IP packets."); ?>
                           </div>
                       </td>
                   </tr>
                   <tr>
-                      <td width="22%"><a id="help_for_nodf" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Do not fragment"); ?></td>
-                      <td width="78%">
+                      <td style="width:22%"><a id="help_for_nodf" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Do not fragment"); ?></td>
+                      <td style="width:78%">
                           <input name="no-df" type="checkbox" value="1" <?= !empty($pconfig['no-df']) ? "checked=\"checked\"" : ""; ?> />
-                          <div class="hidden" for="help_for_nodf">
+                          <div class="hidden" data-for="help_for_nodf">
                             <?=gettext("Clears the dont-fragment bit from a matching IP packet."); ?>
                           </div>
                       </td>
                   </tr>
                   <tr>
-                      <td width="22%"><a id="help_for_randomid" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Random-id"); ?></td>
-                      <td width="78%">
+                      <td style="width:22%"><a id="help_for_randomid" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Random ID') ?></td>
+                      <td style="width:78%">
                           <input name="random-id" type="checkbox" value="1" <?= !empty($pconfig['random-id']) ? "checked=\"checked\"" : ""; ?> />
-                          <div class="hidden" for="help_for_randomid">
+                          <div class="hidden" data-for="help_for_randomid">
                             <?=gettext("Replaces the IP identification field with random values to compensate for ".
                                        "predictable values generated by many hosts. This option only applies to packets ".
                                        "that are not fragmented after the optional fragment reassembly."); ?>
@@ -633,9 +645,9 @@ include("head.inc");
 <?php
                     if ($has_created_time): ?>
                     <tr>
-                      <td width="22%"><?=gettext("Created");?></td>
-                      <td width="78%">
-                        <?= date(gettext("n/j/y H:i:s"), $a_scrub[$id]['created']['time']) ?> <?= gettext("by") ?> <strong><?= $a_scrub[$id]['created']['username'] ?></strong>
+                      <td style="width:22%"><?=gettext("Created");?></td>
+                      <td style="width:78%">
+                        <?= date(gettext('n/j/y H:i:s'), $a_scrub[$id]['created']['time']) ?> (<?= $a_scrub[$id]['created']['username'] ?>)
                       </td>
                     </tr>
 <?php
@@ -644,7 +656,7 @@ include("head.inc");
                     <tr>
                       <td><?=gettext("Updated");?></td>
                       <td>
-                        <?= date(gettext("n/j/y H:i:s"), $a_scrub[$id]['updated']['time']) ?> <?= gettext("by") ?> <strong><?= $a_scrub[$id]['updated']['username'] ?></strong>
+                        <?= date(gettext('n/j/y H:i:s'), $a_scrub[$id]['updated']['time']) ?> (<?= $a_scrub[$id]['updated']['username'] ?>)
                       </td>
                     </tr>
 <?php
@@ -653,9 +665,8 @@ include("head.inc");
                     <tr>
                       <td>&nbsp;</td>
                       <td>
-                        &nbsp;<br />&nbsp;
-                        <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
-                        <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/firewall_rules.php'" />
+                        <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
+                        <input type="button" class="btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/firewall_scrub.php'" />
                       </td>
                     </tr>
                   </table>

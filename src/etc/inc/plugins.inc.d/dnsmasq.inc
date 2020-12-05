@@ -1,33 +1,33 @@
 <?php
 
 /*
-    Copyright (C) 2014-2017 Franco Fichtner <franco@opnsense.org>
-    Copyright (C) 2010 Ermal Luci
-    Copyright (C) 2005-2006 Colin Smith <ethethlay@gmail.com>
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2020 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2010 Ermal Luçi
+ * Copyright (C) 2005-2006 Colin Smith <ethethlay@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 function dnsmasq_enabled()
 {
@@ -41,6 +41,7 @@ function dnsmasq_configure()
     return array(
         'dns' => array('dnsmasq_configure_do'),
         'hosts' => array('dnsmasq_hosts_generate:0'),
+        'local' => array('dnsmasq_configure_do'),
     );
 }
 
@@ -63,6 +64,15 @@ function dnsmasq_services()
     return $services;
 }
 
+function dnsmasq_syslog()
+{
+    $logfacilities = array();
+
+    $logfacilities['dnsmasq'] = array('facility' => array('dnsmasq'));
+
+    return $logfacilities;
+}
+
 function dnsmasq_xmlrpc_sync()
 {
     $result = array();
@@ -80,13 +90,6 @@ function dnsmasq_configure_do($verbose = false)
 {
     global $config;
 
-    // hard coded args: will be removed to avoid duplication if specified in custom_options
-    $standard_args = array(
-        "dns-forward-max" => "--dns-forward-max=5000",
-        "cache-size" => "--cache-size=10000",
-        "local-ttl" => "--local-ttl=1"
-    );
-
     _dnsmasq_dhcpleases_stop();
 
     killbypid('/var/run/dnsmasq.pid', 'TERM', true);
@@ -100,100 +103,88 @@ function dnsmasq_configure_do($verbose = false)
         flush();
     }
 
-    $args = ' -H /var/etc/dnsmasq-hosts ';
+    $args = '';
+    if (!isset($config['system']['webgui']['nodnsrebindcheck'])) {
+        $args .= '--rebind-localhost-ok --stop-dns-rebind';
+    }
+
+    $args .= ' -H /var/etc/dnsmasq-hosts ';
 
     /* Setup listen port, if non-default */
     if (isset($config['dnsmasq']['port']) && is_port($config['dnsmasq']['port'])) {
         $args .= " --port={$config['dnsmasq']['port']} ";
     }
 
-    if (isset($config['dnsmasq']['interface'])) {
+    if (!empty($config['dnsmasq']['interface'])) {
+        $interfaces = explode(',', $config['dnsmasq']['interface']);
+        $interfaces[] = 'lo0';
         $addresses = array();
-        foreach (explode(",", $config['dnsmasq']['interface']) as $interface) {
-            if (is_ipaddrv4($interface)) {
-                $addresses[] = $interface;
-            } elseif (is_ipaddrv6($interface)) {
-                 // Since dnsmasq does not support link-local address with scope specified. strip address.
-                 $addresses[] = explode("%", $interface)[0];
-            } else {
-                $intf_ipv4 = get_interface_ip($interface);
-                $intf_ipv6 = get_interface_ipv6($interface);
-                if (!empty($intf_ipv4)) {
-                    $addresses[] = $intf_ipv4;
-                }
-                if (!empty($intf_ipv6)) {
-                    $addresses[] = explode("%", $intf_ipv6)[0];
-                }
+
+        foreach (interfaces_addresses($interfaces) as $tmpaddr => $info) {
+            if ($info['name'] == 'lo0' && $info['family'] == 'inet' && $tmpaddr != '127.0.0.1') {
+                /* allow other DNS services to bind to loopback aliases */
+                continue;
             }
+
+            if ($info['scope']) {
+                /* link-local does not seem to be supported */
+                continue;
+            }
+
+            $addresses[] = $tmpaddr;
         }
+
         foreach ($addresses as $address) {
             $args .= " --listen-address={$address} ";
         }
+
         if (!empty($addresses) && isset($config['dnsmasq']['strictbind'])) {
-            $args .= " --bind-interfaces ";
+            $args .= ' --bind-interfaces ';
         }
     }
 
-    /* If selected, then first forward reverse lookups for private IPv4 addresses to nowhere. */
-    /* If any of these are duplicated by a user-specified domain override (e.g. 10.in-addr.arpa) then */
-    /* the user-specified entry made later on the command line below will be the one that is effective. */
     if (isset($config['dnsmasq']['no_private_reverse'])) {
-        /* Note: Carrier Grade NAT (CGN) addresses 100.64.0.0/10 are intentionally not here. */
-        /* End-users should not be aware of CGN addresses, so reverse lookups for these should not happen. */
-        /* Just the OPNsense WAN might get a CGN address from an ISP. */
-        $args .= " --server=/10.in-addr.arpa/ ";
-        $args .= " --server=/168.192.in-addr.arpa/ ";
-        /* Unfortunately the 172.16.0.0/12 range does not map nicely to the in-addr.arpa scheme. */
-        for ($subnet_num = 16; $subnet_num < 32; $subnet_num++) {
-            $args .= " --server=/" . $subnet_num . ".172.in-addr.arpa/ ";
-        }
+        $args .= ' --bogus-priv ';
     }
 
-    /* Setup forwarded domains */
-    if (isset($config['dnsmasq']['domainoverrides']) && is_array($config['dnsmasq']['domainoverrides'])) {
-      foreach($config['dnsmasq']['domainoverrides'] as $override) {
-        if ($override['ip'] == "!") {
-            $override['ip'] = "";
+    foreach (config_read_array('dnsmasq', 'domainoverrides') as $override) {
+        if ($override['ip'] == '!') {
+            $override['ip'] = '';
         }
-        $args .= ' --server='. escapeshellarg('/' . $override['domain'] . '/' . $override['ip']);
-      }
-    }
 
-    /* Allow DNS Rebind for forwarded domains */
-    if (isset($config['dnsmasq']['domainoverrides']) && is_array($config['dnsmasq']['domainoverrides'])) {
+        $args .= ' --server=' . escapeshellarg('/' . $override['domain'] . '/' . $override['ip']);
+
         if (!isset($config['system']['webgui']['nodnsrebindcheck'])) {
-            foreach($config['dnsmasq']['domainoverrides'] as $override) {
-                $args .= ' --rebind-domain-ok=' . escapeshellarg('/'.$override['domain'].'/') . ' ' ;
-            }
+            $args .= ' --rebind-domain-ok=' . escapeshellarg('/' . $override['domain'] . '/') . ' ';
         }
-    }
-
-    if (!isset($config['system']['webgui']['nodnsrebindcheck'])) {
-        $dns_rebind = "--rebind-localhost-ok --stop-dns-rebind";
     }
 
     if (isset($config['dnsmasq']['strict_order'])) {
-        $args .= " --strict-order ";
+        $args .= ' --strict-order ';
     }
 
     if (isset($config['dnsmasq']['domain_needed'])) {
-        $args .= " --domain-needed ";
+        $args .= ' --domain-needed ';
     }
 
-    if (isset($config['dnsmasq']['custom_options']) && !empty($config['dnsmasq']['custom_options'])) {
-        foreach (preg_split('/\s+/', $config['dnsmasq']['custom_options']) as $c) {
-            $args .= " " . escapeshellarg("--{$c}");
-            $p = explode('=', $c);
-            if (array_key_exists($p[0], $standard_args)) {
-                unset($standard_args[$p[0]]);
-            }
-        }
+    if (isset($config['dnsmasq']['dnssec'])) {
+        $args .= ' --dnssec ';
+        $args .= ' --trust-anchor=.,19036,8,2,49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5 ';
+        $args .= ' --trust-anchor=.,20326,8,2,E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D ';
     }
-    $args .= ' ' . implode(' ', array_values($standard_args));
+
+    if (isset($config['dnsmasq']['log_queries'])) {
+        $args .= ' --log-queries=extra ';
+    }
+
+    $args .= ' --dns-forward-max=5000 ';
+    $args .= ' --cache-size=10000 ';
+    $args .= ' --local-ttl=1 ';
+    $args .= ' --conf-dir=/usr/local/etc/dnsmasq.conf.d,\*.conf ';
 
     _dnsmasq_add_host_entries();
 
-    mwexec("/usr/local/sbin/dnsmasq --all-servers {$dns_rebind} {$args}");
+    mwexec("/usr/local/sbin/dnsmasq --all-servers {$args}");
 
     _dnsmasq_dhcpleases_start();
 
@@ -260,14 +251,19 @@ function _dnsmasq_add_host_entries()
                     if (!$host['ipaddrv6'] || !$host['hostname']) {
                         continue;
                     }
-
                     $domain = $config['system']['domain'];
-                    if ($host['domain']) {
+                    // XXX: dhcpdv6 domain entries have been superseded by domainsearchlist,
+                    //      for backward compatibilty support both here.
+                    if (!empty($host['domainsearchlist'])) {
+                        $domain = $host['domainsearchlist'];
+                    } elseif (!empty($host['domain'])) {
                         $domain = $host['domain'];
-                    } elseif ($dhcpifconf['domain']) {
+                    } elseif (!empty($dhcpifconf['domainsearchlist'])) {
+                        $domain = $dhcpifconf['domainsearchlist'];
+                    } elseif (!empty($dhcpifconf['domain'])) {
                         $domain = $dhcpifconf['domain'];
                     }
-
+                    $domain = explode(";", $domain)[0]; // XXX: first entry of domainsearchlist
                     $dhosts .= "{$host['ipaddrv6']}\t{$host['hostname']}.{$domain} {$host['hostname']}\n";
                 }
             }
@@ -292,7 +288,8 @@ function _dnsmasq_dhcpleases_start()
 {
     global $config;
 
-    $leases = services_dhcpd_leasesfile();
+    require_once 'plugins.inc.d/dhcpd.inc';  /* XXX */
+    $leases = dhcpd_dhcpv4_leasesfile();
 
     if (isset($config['dnsmasq']['regdhcp']) && file_exists($leases)) {
         $domain = $config['system']['domain'];

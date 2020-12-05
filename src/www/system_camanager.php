@@ -1,36 +1,37 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2008 Shrew Soft Inc.
-    All rights reserved.
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2008 Shrew Soft Inc. <mgrooms@shrew.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
-
-require_once('guiconfig.inc');
+require_once("guiconfig.inc");
 require_once("system.inc");
 
-function ca_import(& $ca, $str, $key="", $serial=0) {
+function ca_import(& $ca, $str, $key="", $serial=0)
+{
     global $config;
 
     $ca['crt'] = base64_encode($str);
@@ -44,9 +45,9 @@ function ca_import(& $ca, $str, $key="", $serial=0) {
     $issuer = cert_get_issuer($str, false);
 
     // Find my issuer unless self-signed
-    if($issuer <> $subject) {
+    if ($issuer != $subject) {
         $issuer_crt =& lookup_ca_by_subject($issuer);
-        if($issuer_crt) {
+        if ($issuer_crt) {
             $ca['caref'] = $issuer_crt['refid'];
         }
     }
@@ -55,7 +56,7 @@ function ca_import(& $ca, $str, $key="", $serial=0) {
     if (is_array($config['ca'])) {
         foreach ($config['ca'] as & $oca) {
             $issuer = cert_get_issuer($oca['crt']);
-            if($ca['refid']<>$oca['refid'] && $issuer==$subject) {
+            if ($ca['refid'] != $oca['refid'] && $issuer == $subject) {
                 $oca['caref'] = $ca['refid'];
             }
         }
@@ -63,7 +64,7 @@ function ca_import(& $ca, $str, $key="", $serial=0) {
     if (is_array($config['cert'])) {
         foreach ($config['cert'] as & $cert) {
             $issuer = cert_get_issuer($cert['crt']);
-            if($issuer==$subject) {
+            if ($issuer == $subject) {
                 $cert['caref'] = $ca['refid'];
             }
         }
@@ -71,7 +72,7 @@ function ca_import(& $ca, $str, $key="", $serial=0) {
     return true;
 }
 
-function ca_inter_create(&$ca, $keylen, $lifetime, $dn, $caref, $digest_alg = 'sha256')
+function ca_inter_create(&$ca, $keylen_curve, $lifetime, $dn, $caref, $digest_alg = 'sha256')
 {
     // Create Intermediate Certificate Authority
     $signing_ca = &lookup_ca($caref);
@@ -88,12 +89,17 @@ function ca_inter_create(&$ca, $keylen, $lifetime, $dn, $caref, $digest_alg = 's
 
     $args = array(
         'config' => '/usr/local/etc/ssl/opnsense.cnf',
-        'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        'private_key_bits' => (int)$keylen,
         'x509_extensions' => 'v3_ca',
         'digest_alg' => $digest_alg,
         'encrypt_key' => false
     );
+    if (is_numeric($keylen_curve)) {
+        $args['private_key_type'] = OPENSSL_KEYTYPE_RSA;
+        $args['private_key_bits'] = (int)$keylen_curve;
+    } else {
+        $args['private_key_type'] = OPENSSL_KEYTYPE_EC;
+        $args['curve_name'] = $keylen_curve;
+    }
 
     // generate a new key pair
     $res_key = openssl_pkey_new($args);
@@ -128,22 +134,12 @@ function ca_inter_create(&$ca, $keylen, $lifetime, $dn, $caref, $digest_alg = 's
     return true;
 }
 
-
-$ca_keylens = array( "512", "1024", "2048", "4096", "8192");
+$ca_keylens = array( "512", "1024", "2048", "3072", "4096", "8192");
+$ca_curves = array( "prime256v1", "secp384r1", "secp521r1");
 $openssl_digest_algs = array("sha1", "sha224", "sha256", "sha384", "sha512");
-
-if (!is_array($config['cert'])) {
-    $config['cert'] = array();
-}
-if (!isset($config['crl']) || !is_array($config['crl'])) {
-    $config['crl'] = array();
-}
-
-if (!isset($config['ca']) || !is_array($config['ca'])) {
-    $config['ca'] = array();
-}
-
-$a_ca =& $config['ca'];
+$a_ca = &config_read_array('ca');
+$a_cert = &config_read_array('cert');
+$a_crl = &config_read_array('crl');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (isset($a_ca[$_GET['id']])) {
@@ -169,16 +165,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig['dn_email'] = null;
     $pconfig['dn_commonname'] = null;
 
-
     if ($act == "edit") {
         if (!isset($id)) {
             header(url_safe('Location: /system_camanager.php'));
             exit;
         }
-        $pconfig['descr']  = $a_ca[$id]['descr'];
-        $pconfig['refid']  = $a_ca[$id]['refid'];
-        $pconfig['cert']   = base64_decode($a_ca[$id]['crt']);
-        $pconfig['serial'] = $a_ca[$id]['serial'];
+        $pconfig['descr'] = $a_ca[$id]['descr'];
+        $pconfig['refid'] = $a_ca[$id]['refid'];
+        $pconfig['cert'] = base64_decode($a_ca[$id]['crt']);
+        $pconfig['serial'] = $a_ca[$id]['serial'] + 1;
         if (!empty($a_ca[$id]['prv'])) {
             $pconfig['key'] = base64_decode($a_ca[$id]['prv']);
         }
@@ -187,9 +182,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             $pconfig['camethod'] = $_GET['method'];
         }
         $pconfig['refid'] = null;
+        $pconfig['keytype'] = "RSA";
         $pconfig['keylen'] = "2048";
         $pconfig['digest_alg'] = "sha256";
-        $pconfig['lifetime'] = "365";
+        $pconfig['lifetime'] = "825";
         $pconfig['dn_commonname'] = "internal-ca";
     } elseif ($act == "exp") {
         if (!isset($id)) {
@@ -237,7 +233,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             header(url_safe('Location: /system_camanager.php'));
             exit;
         }
-        $a_cert =& $config['cert'];
         $index = count($a_cert) - 1;
         for (; $index >=0; $index--) {
             if (isset($a_cert[$index]['caref']) && isset($a_ca[$id]['refid']) && $a_cert[$index]['caref'] == $a_ca[$id]['refid']) {
@@ -245,7 +240,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             }
         }
 
-        $a_crl =& $config['crl'];
         $index = count($a_crl) - 1;
         for (; $index >=0; $index--) {
             if ($a_crl[$index]['caref'] == $a_ca[$id]['refid']) {
@@ -255,6 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
         unset($a_ca[$id]);
         write_config();
+        system_trust_configure();
         header(url_safe('Location: /system_camanager.php'));
         exit;
     } else {
@@ -276,12 +271,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         } elseif ($pconfig['camethod'] == "internal") {
             $reqdfields = explode(
                 " ",
-                "descr keylen lifetime dn_country dn_state dn_city ".
+                "descr keytype keylen curve digest_alg lifetime dn_country dn_state dn_city ".
                 "dn_organization dn_email dn_commonname"
             );
             $reqdfieldsn = array(
                     gettext("Descriptive name"),
+                    gettext("Key type"),
                     gettext("Key length"),
+                    gettext("Curve"),
+                    gettext("Digest algorithm"),
                     gettext("Lifetime"),
                     gettext("Distinguished name Country Code"),
                     gettext("Distinguished name State or Province"),
@@ -292,13 +290,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         } elseif ($pconfig['camethod'] == "intermediate") {
             $reqdfields = explode(
                 " ",
-                "descr caref keylen lifetime dn_country dn_state dn_city ".
+                "descr caref keytype keylen curve digest_alg lifetime dn_country dn_state dn_city ".
                 "dn_organization dn_email dn_commonname"
             );
             $reqdfieldsn = array(
                     gettext("Descriptive name"),
                     gettext("Signing Certificate Authority"),
+                    gettext("Key type"),
                     gettext("Key length"),
+                    gettext("Curve"),
+                    gettext("Digest algorithm"),
                     gettext("Lifetime"),
                     gettext("Distinguished name Country Code"),
                     gettext("Distinguished name State or Province"),
@@ -320,16 +321,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     if (preg_match("/[\!\@\#\$\%\^\(\)\~\?\>\<\&\/\\\,\"\']/", $pconfig["dn_commonname"])) {
                         $input_errors[] = gettext("The field 'Distinguished name Common Name' contains invalid characters.");
                     }
-                } elseif (($reqdfields[$i] != "descr") && preg_match("/[\!\@\#\$\%\^\(\)\~\?\>\<\&\/\\\,\.\"\']/", $pconfig["$reqdfields[$i]"])) {
+                } elseif (($reqdfields[$i] != "descr") && preg_match("/[\!\@\#\$\%\^\(\)\~\?\>\<\&\/\\\,\"\']/", $pconfig["$reqdfields[$i]"])) {
                     $input_errors[] = sprintf(gettext("The field '%s' contains invalid characters."), $reqdfieldsn[$i]);
                 }
             }
-            if (!in_array($pconfig["keylen"], $ca_keylens)) {
+            if (!in_array($pconfig["keytype"], array("RSA", "Elliptic Curve"))) {
+                $input_errors[] = gettext("Please select a valid Key Type.");
+            }
+            if (!in_array($pconfig['keylen'], $ca_keylens) && $pconfig["keytype"] == "RSA") {
                 $input_errors[] = gettext("Please select a valid Key Length.");
+            }
+            if (!in_array($pconfig['curve'], $ca_curves) && $pconfig["keytype"] == "Elliptic Curve") {
+                $input_errors[] = gettext("Please select a valid Curve.");
             }
             if (!in_array($pconfig["digest_alg"], $openssl_digest_algs)) {
                 $input_errors[] = gettext("Please select a valid Digest Algorithm.");
             }
+        }
+
+        if (isset($pconfig['serial']) && $pconfig['serial'] !== '' &&
+            ((string)((int)$pconfig['serial']) != $pconfig['serial'] || $pconfig['serial'] < 1)) {
+            $input_errors[] = gettext('The serial number must be a number greater than zero or left blank.');
         }
 
         /* save modifications */
@@ -349,17 +361,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             }
 
             if (!empty($pconfig['serial'])) {
-                $ca['serial'] = $pconfig['serial'];
+                $ca['serial'] = $pconfig['serial'] - 1;
             }
 
             if (isset($id)) {
                 // edit existing
-                $ca['crt']    = base64_encode($pconfig['cert']);
+                $ca['crt'] = base64_encode($pconfig['cert']);
                 if (!empty($pconfig['key'])) {
-                    $ca['prv']    = base64_encode($pconfig['key']);
+                    $ca['prv'] = base64_encode($pconfig['key']);
                 }
             } else {
                 $old_err_level = error_reporting(0); /* otherwise openssl_ functions throw warnings directly to a page screwing menu tab */
+                if ($pconfig['keytype'] == "Elliptic Curve") {
+                    $pconfig['keylen_curve'] = $pconfig['curve'];
+                } else {
+                    $pconfig['keylen_curve'] = $pconfig['keylen'];
+                }
                 if ($pconfig['camethod'] == "existing") {
                     ca_import($ca, $pconfig['cert'], $pconfig['key'], $pconfig['serial']);
                 } elseif ($pconfig['camethod'] == "internal") {
@@ -370,7 +387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                         'organizationName' => $pconfig['dn_organization'],
                         'emailAddress' => $pconfig['dn_email'],
                         'commonName' => $pconfig['dn_commonname']);
-                    if (!ca_create($ca, $pconfig['keylen'], $pconfig['lifetime'], $dn, $pconfig['digest_alg'])) {
+                    if (!ca_create($ca, $pconfig['keylen_curve'], $pconfig['lifetime'], $dn, $pconfig['digest_alg'])) {
                         $input_errors = array();
                         while ($ssl_err = openssl_error_string()) {
                             $input_errors[] = gettext("openssl library returns:") . " " . $ssl_err;
@@ -384,7 +401,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                         'organizationName' => $pconfig['dn_organization'],
                         'emailAddress' => $pconfig['dn_email'],
                         'commonName' => $pconfig['dn_commonname']);
-                    if (!ca_inter_create($ca, $pconfig['keylen'], $pconfig['lifetime'], $dn, $pconfig['caref'], $pconfig['digest_alg'])) {
+                    if (!ca_inter_create($ca, $pconfig['keylen_curve'], $pconfig['lifetime'], $dn, $pconfig['caref'], $pconfig['digest_alg'])) {
                         $input_errors = array();
                         while ($ssl_err = openssl_error_string()) {
                             $input_errors[] = gettext("openssl library returns:") . " " . $ssl_err;
@@ -402,7 +419,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
             if (count($input_errors) == 0) {
                 write_config();
+                system_trust_configure();
                 header(url_safe('Location: /system_camanager.php'));
+                exit;
             }
         }
     }
@@ -412,13 +431,13 @@ legacy_html_escape_form_data($pconfig);
 include("head.inc");
 
 $main_buttons = array(
-    array('label' => gettext('Add or import CA'), 'href' => 'system_camanager.php?act=new'),
+    array('label' => gettext('Add'), 'href' => 'system_camanager.php?act=new'),
 );
 
 ?>
 
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
     // delete entry
     $(".act_delete").click(function(event){
@@ -458,6 +477,19 @@ $main_buttons = array(
     });
 
     $("#camethod").change();
+
+    $("#keytype").change(function(){
+        $("#EC").addClass("hidden");
+        $("#RSA").addClass("hidden");
+        $("#blank").addClass("hidden");
+        if ($(this).val() == "Elliptic Curve") {
+            $("#EC").removeClass("hidden");
+        } else {
+            $("#RSA").removeClass("hidden");
+        }
+    });
+
+    $("#keytype").change();
   });
   </script>
 
@@ -485,10 +517,10 @@ $main_buttons = array(
           <input type="hidden" name="act" id="action" value="<?=$act;?>"/>
           <table class="table table-striped opnsense_standard_table_form">
             <tr>
-              <td width="22%"></td>
-              <td  width="78%" align="right">
+              <td style="width:22%"></td>
+              <td style="width:78%; text-align:right">
                 <small><?=gettext("full help"); ?> </small>
-                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
               </td>
             </tr>
             <tr>
@@ -523,10 +555,10 @@ $main_buttons = array(
             </thead>
             <tbody>
               <tr>
-                <td width="22%"><a id="help_for_cert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Certificate data");?></td>
-                <td width="78%">
+                <td style="width:22%"><a id="help_for_cert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Certificate data");?></td>
+                <td style="width:78%">
                   <textarea name="cert" cols="65" rows="7" id="cert"><?=isset($pconfig['cert']) ? $pconfig['cert'] : "";?></textarea>
-                  <div class="hidden" for="help_for_cert">
+                  <div class="hidden" data-for="help_for_cert">
                     <?=gettext("Paste a certificate in X.509 PEM format here.");?>
                   </div>
                 </td>
@@ -536,9 +568,9 @@ $main_buttons = array(
                   <a id="help_for_key" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Certificate Private Key");?><br />
                   <?=gettext("(optional)");?>
                 </td>
-                <td width="78%">
+                <td style="width:78%">
                   <textarea name="key" id="key" cols="65" rows="7"><?= isset($pconfig['key']) ? $pconfig['key'] : "";?></textarea>
-                  <div class="hidden" for="help_for_key">
+                  <div class="hidden" data-for="help_for_key">
                     <?=gettext("Paste the private key for the above certificate here. This is optional in most cases, but required if you need to generate a Certificate Revocation List (CRL).");?>
                   </div>
                 </td>
@@ -547,7 +579,7 @@ $main_buttons = array(
                 <td><a id="help_for_serial" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Serial for next certificate");?></td>
                 <td>
                   <input name="serial" type="text" id="serial" size="20" value="<?=$pconfig['serial'];?>"/>
-                  <div class="hidden" for="help_for_serial">
+                  <div class="hidden" data-for="help_for_serial">
                     <?=gettext("Enter a decimal number to be used as the serial number for the next certificate to be created using this CA.");?>
                   </div>
                 </td>
@@ -563,8 +595,8 @@ $main_buttons = array(
               </thead>
               <tbody>
                 <tr id='intermediate'>
-                  <td width="22%"> <i class="fa fa-info-circle text-muted"></i>  <?=gettext("Signing Certificate Authority");?></td>
-                  <td width="78%">
+                  <td style="width:22%"> <i class="fa fa-info-circle text-muted"></i>  <?=gettext("Signing Certificate Authority");?></td>
+                  <td style="width:78%">
                     <select name='caref' id='caref' class="selectpicker" onchange='internalca_change()'>
 <?php
                     foreach ($a_ca as $ca) :
@@ -578,12 +610,38 @@ $main_buttons = array(
                   </td>
                 </tr>
                 <tr>
+                  <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Key Type");?></td>
+                  <td style="width:78%">
+                    <select name='keytype' id='keytype' class="selectpicker">
+                  <option value="RSA" <?=$pconfig['keytype'] == "RSA" ? "selected=\"selected\"" : "";?>>
+                    <?=gettext("RSA");?>
+                  </option>
+                  <option value="Elliptic Curve" <?=$pconfig['keytype'] == "Elliptic Curve" ? "selected=\"selected\"" : "";?>>
+                    <?=gettext("Elliptic Curve");?>
+                  </option>
+                    </select>
+                  </td>
+                </tr>
+                <tr id='RSA'>
                   <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Key length");?> (<?=gettext("bits");?>)</td>
-                  <td width="78%">
+                  <td style="width:78%">
                     <select name='keylen' id='keylen' class="selectpicker">
 <?php
-                    foreach ($ca_keylens as $len) :?>
+                        foreach ($ca_keylens as $len) :?>
                       <option value="<?=$len;?>" <?=isset($pconfig['keylen']) && $pconfig['keylen'] == $len ? "selected=\"selected\"" : "";?>><?=$len;?></option>
+<?php
+                    endforeach; ?>
+                    </select>
+                  </td>
+                </tr>
+                <tr id='blank'><td></td></tr>
+                <tr id='EC'>
+                  <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Curve");?></td>
+                  <td style="width:78%">
+                    <select name='curve' id='curve' class="selectpicker">
+<?php
+                    foreach ($ca_curves as $curve) :?>
+                      <option value="<?=$curve;?>" <?=isset($pconfig['curve']) && $pconfig['curve'] == $curve ? "selected=\"selected\"" : "";?>><?=$curve;?></option>
 <?php
                     endforeach; ?>
                     </select>
@@ -599,7 +657,7 @@ $main_buttons = array(
 <?php
                     endforeach; ?>
                     </select>
-                    <div class="hidden" for="help_for_digest_alg">
+                    <div class="hidden" data-for="help_for_digest_alg">
                       <?= gettext("NOTE: It is recommended to use an algorithm stronger than SHA1 when possible.") ?>
                     </div>
                   </td>
@@ -631,7 +689,7 @@ $main_buttons = array(
                   <td><a id="help_for_digest_dn_state" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("State or Province");?> : &nbsp;</td>
                   <td>
                     <input name="dn_state" type="text" size="40" value="<?=$pconfig['dn_state'];?>"/>
-                    <div class="hidden" for="help_for_digest_dn_state">
+                    <div class="hidden" data-for="help_for_digest_dn_state">
                       <em><?=gettext("ex:");?></em>
                       &nbsp;
                       <?=gettext("Sachsen");?>
@@ -642,7 +700,7 @@ $main_buttons = array(
                   <td><a id="help_for_digest_dn_city" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("City");?> : &nbsp;</td>
                   <td>
                     <input name="dn_city" type="text" size="40" value="<?=$pconfig['dn_city'];?>"/>
-                    <div class="hidden" for="help_for_digest_dn_city">
+                    <div class="hidden" data-for="help_for_digest_dn_city">
                       <em><?=gettext("ex:");?></em>
                       &nbsp;
                       <?=gettext("Leipzig");?>
@@ -653,7 +711,7 @@ $main_buttons = array(
                   <td><a id="help_for_digest_dn_organization" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Organization");?> : &nbsp;</td>
                   <td>
                     <input name="dn_organization" type="text" size="40" value="<?=$pconfig['dn_organization'];?>"/>
-                    <div class="hidden" for="help_for_digest_dn_organization">
+                    <div class="hidden" data-for="help_for_digest_dn_organization">
                       <em><?=gettext("ex:");?></em>
                       &nbsp;
                       <?=gettext("My Company Inc");?>
@@ -664,7 +722,7 @@ $main_buttons = array(
                   <td><a id="help_for_digest_dn_email" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Email Address");?> : &nbsp;</td>
                   <td>
                     <input name="dn_email" type="text" size="25" value="<?=$pconfig['dn_email'];?>"/>
-                    <div class="hidden" for="help_for_digest_dn_email">
+                    <div class="hidden" data-for="help_for_digest_dn_email">
                       <em><?=gettext("ex:");?></em>
                       &nbsp;
                       <?=gettext("admin@mycompany.com");?>
@@ -675,7 +733,7 @@ $main_buttons = array(
                   <td><a id="help_for_digest_dn_commonname" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Common Name");?> : &nbsp;</td>
                   <td>
                     <input name="dn_commonname" type="text" size="25" value="<?=$pconfig['dn_commonname'];?>"/>
-                    <div class="hidden" for="help_for_digest_dn_commonname">
+                    <div class="hidden" data-for="help_for_digest_dn_commonname">
                       <em><?=gettext("ex:");?></em>
                       &nbsp;
                       <?=gettext("internal-ca");?>
@@ -687,9 +745,9 @@ $main_buttons = array(
 
             <table class="table opnsense_standard_table_form">
             <tr>
-              <td width="22%">&nbsp;</td>
-              <td width="78%">
-                <input id="submit" name="save" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
+              <td style="width:22%">&nbsp;</td>
+              <td style="width:78%">
+                <input id="submit" name="save" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
               </td>
             </tr>
           </table>
@@ -701,7 +759,7 @@ $main_buttons = array(
           <input type="hidden" name="id" id="id" value="<?=isset($id) ? $id :"";?>"/>
           <input type="hidden" name="act" id="action" value="<?=$act;?>"/>
         </form>
-        <table width="100%" border="0" cellpadding="0" cellspacing="0" summary="" class="table table-striped">
+        <table style="width:100%; border:0;" class="table table-striped">
           <thead>
             <tr>
               <th><?=gettext("Name");?></th>
@@ -734,7 +792,7 @@ $main_buttons = array(
 
               $certcount = 0;
 
-              foreach ($config['cert'] as $cert) {
+              foreach ($a_cert as $cert) {
                   if ($cert['caref'] == $ca['refid']) {
                       $certcount++;
                   }
@@ -754,11 +812,11 @@ $main_buttons = array(
               <td><?=$issuer_name;?>&nbsp;</td>
               <td><?=$certcount;?>&nbsp;</td>
               <td><?=$subj;?><br />
-                  <table width="100%" style="font-size: 9px">
+                  <table style="width:100%; font-size: 9px">
                     <tr>
                       <td>&nbsp;</td>
-                      <td width="20%"><?=gettext("Valid From")?>:</td>
-                      <td width="70%"><?= $startdate ?></td>
+                      <td style="width:20%"><?=gettext("Valid From")?>:</td>
+                      <td style="width:70%"><?= $startdate ?></td>
                     </tr>
                     <tr>
                       <td>&nbsp;</td>
@@ -767,22 +825,22 @@ $main_buttons = array(
                     </tr>
                   </table>
                 </td>
-                <td>
-                  <a href="system_camanager.php?act=edit&amp;id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("edit CA");?>" alt="<?=gettext("edit CA");?>" class="btn btn-default btn-xs">
-                    <span class="glyphicon glyphicon-pencil"></span>
+                <td class="text-nowrap">
+                  <a href="system_camanager.php?act=edit&amp;id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("edit CA");?>" class="btn btn-default btn-xs">
+                    <i class="fa fa-pencil fa-fw"></i>
                   </a>
-                  <a href="system_camanager.php?act=exp&amp;id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("export CA cert");?>" alt="<?=gettext("export CA cert");?>" class="btn btn-default btn-xs">
-                    <span class="glyphicon glyphicon-download"></span>
+                  <a href="system_camanager.php?act=exp&amp;id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("export CA cert");?>" class="btn btn-default btn-xs">
+                    <i class="fa fa-download fa-fw"></i>
                   </a>
 <?php
                   if ($ca['prv']) :?>
                   <a href="system_camanager.php?act=expkey&amp;id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("export CA private key");?>" class="btn btn-default btn-xs">
-                    <span class="glyphicon glyphicon-download"></span>
+                    <i class="fa fa-download fa-fw"></i>
                   </a>
 <?php
                   endif; ?>
                   <a id="del_<?=$i;?>" data-id="<?=$i;?>" title="<?=gettext("delete ca"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
-                    <span class="fa fa-trash text-muted"></span>
+                    <i class="fa fa-trash fa-fw"></i>
                   </a>
                 </td>
               </tr>

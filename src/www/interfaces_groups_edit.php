@@ -1,44 +1,38 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2009 Ermal Luçi
-    Copyright (C) 2004 Scott Ullrich
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2009 Ermal Luçi
+ * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("interfaces.inc");
+require_once("filter.inc");
 
-if (!isset($config['ifgroups']) || !is_array($config['ifgroups'])) {
-    $config['ifgroups'] = array();
-}
-if (!isset($config['ifgroups']['ifgroupentry']) || !is_array($config['ifgroups']['ifgroupentry'])) {
-    $config['ifgroups']['ifgroupentry'] = array();
-}
-
-$a_ifgroups = &$config['ifgroups']['ifgroupentry'];
+$a_ifgroups = &config_read_array('ifgroups', 'ifgroupentry');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // read form data
@@ -64,8 +58,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             }
         }
     }
-    if (preg_match("/([^a-zA-Z])+/", $pconfig['ifname'], $match) || empty($pconfig['ifname'])) {
-        $input_errors[] = gettext("Only letters A-Z are allowed as the group name.");
+
+    if (empty($pconfig['ifname']) || preg_match('/[^a-zA-Z0-9_]+/', $pconfig['ifname'], $match)) {
+        $input_errors[] = gettext('Only letters, digits and underscores are allowed as the group name.');
+    }
+
+    if (!empty($pconfig['ifname'])) {
+        if (strlen($pconfig['ifname']) > 15) {
+            $input_errors[] = gettext('The group name shall not be longer than 15 characters.');
+        }
+
+        if (preg_match('/[0-9]$/', $pconfig['ifname'], $match)) {
+            $input_errors[] = gettext('The group name shall not end in a digit.');
+        }
     }
 
     foreach (get_configured_interface_with_descr() as $gif => $gdescr) {
@@ -109,23 +114,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                   }
               }
           }
-          // remove group members
-          foreach (explode(" ", $a_ifgroups[$id]['members']) as $old_member) {
-              if (!in_array($old_member, $pconfig['members'])) {
-                  $realif = get_real_interface($old_member);
-                  if (!empty($realif)) {
-                      mwexec("/sbin/ifconfig {$realif} -group " . escapeshellarg($a_ifgroups[$id]['ifname']));
-                  }
-              }
-          }
           // update item
           $a_ifgroups[$id] = $ifgroupentry;
       } else {
           // add new item
           $a_ifgroups[] = $ifgroupentry;
       }
+      mark_subsystem_dirty('filter');
+      usort($a_ifgroups, function($a, $b) {
+          return strnatcmp($a['ifname'], $b['ifname']);
+      });
+      filter_rules_sort();
       write_config();
-      interface_group_setup($ifgroupentry);
       header(url_safe('Location: /interfaces_groups.php'));
       exit;
     }
@@ -150,20 +150,20 @@ legacy_html_escape_form_data($pconfig);
               <table class="table table-striped opnsense_standard_table_form">
                 <thead>
                   <tr>
-                    <td width="22%"><strong><?=gettext("Interface Groups Edit");?></strong></td>
-                    <td width="78%" align="right">
+                    <td style="width:22%"><strong><?=gettext("Interface Groups Edit");?></strong></td>
+                    <td style="width:78%; text-align:right">
                       <small><?=gettext("full help"); ?> </small>
-                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                       &nbsp;
                     </td>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td><a id="help_for_ifname" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Group Name");?></td>
+                    <td><a id="help_for_ifname" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Name') ?></td>
                     <td>
                       <input type="text" name="ifname" value="<?=$pconfig['ifname'];?>" />
-                      <div class="hidden" for="help_for_ifname">
+                      <div class="hidden" data-for="help_for_ifname">
                         <?=gettext("No numbers or spaces are allowed. Only characters in a-zA-Z");?>
                       </div>
                     </td>
@@ -172,39 +172,37 @@ legacy_html_escape_form_data($pconfig);
                     <td><a id="help_for_descr" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description"); ?></td>
                     <td>
                       <input name="descr" type="text" value="<?=$pconfig['descr'];?>" />
-                      <div class="hidden" for="help_for_descr">
-                        <?=gettext("You may enter a description here " .
-                        "for your reference (not parsed)."); ?>
+                      <div class="hidden" data-for="help_for_descr">
+                        <?= gettext('You may enter a description here for your reference.') ?>
                       </div>
                     </td>
                   </tr>
                   <tr>
-                    <td><a id="help_for_members" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Member (s)");?></td>
+                    <td><a id="help_for_members" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Members') ?></td>
                     <td>
                         <select name="members[]" multiple="multiple" class="selectpicker" data-size="5" data-live-search="true">
 <?php
-                        foreach (legacy_config_get_interfaces(array("enable" => true)) as $ifn => $ifdetail):
+                        foreach (legacy_config_get_interfaces() as $ifn => $ifdetail):
                           if (!empty($ifdetail['type']) && $ifdetail['type'] == 'group') {
                               continue;
                           }
                           ?>
-                            <option value="<?=$ifn;?>" <?=in_array($ifn, $pconfig['members']) ? "selected=\"selected\"" : "";?>>
-                                <?=strtoupper($ifdetail['descr']);?>
-                            </option>
+                          <option value="<?=$ifn;?>" <?=in_array($ifn, $pconfig['members']) ? "selected=\"selected\"" : "";?>>
+                            <?= htmlspecialchars($ifdetail['descr']) ?>
+                          </option>
 <?php
                         endforeach;?>
                         </select>
-                      <div class="hidden" for="help_for_members">
-                      <strong><?= gettext('NOTE:') ?></strong>
-                      <?= gettext('Rules for WAN type interfaces in groups do not contain the reply-to mechanism upon which Multi-WAN typically relies.') ?>
+                      <div class="hidden" data-for="help_for_members">
+                        <?= gettext('Rules for WAN type interfaces in groups do not contain the reply-to mechanism upon which Multi-WAN typically relies.') ?>
                       </div>
                     </td>
                   </tr>
                   <tr>
                     <td>&nbsp;</td>
                     <td>
-                      <input name="submit" type="submit" class="btn btn-primary" value="<?=gettext("Save");?>" />
-                      <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/interfaces_groups.php'" />
+                      <input name="submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
+                      <input type="button" class="btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/interfaces_groups.php'" />
                       <?php if (isset($id)): ?>
                       <input name="id" type="hidden" value="<?=$id;?>" />
                       <?php endif; ?>

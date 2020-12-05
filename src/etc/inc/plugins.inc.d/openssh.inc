@@ -1,9 +1,9 @@
 <?php
 
 /*
- * Copyright (C) 2004 Scott K Ullrich
- * Copyright (C) 2004 Fred Mol <fredmol@xs4all.nl>.
- * Copyright (C) 2015-2017 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2004 Fred Mol <fredmol@xs4all.nl>
+ * Copyright (C) 2015-2018 Franco Fichtner <franco@opnsense.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,21 +28,28 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+function openssh_enabled()
+{
+    global $config;
+
+    return isset($config['system']['ssh']['enabled']) ||
+        (!isset($config['system']['ssh']['noauto']) && is_install_media());
+}
+
 function openssh_configure()
 {
     return array(
         'earlybootup' => array('openssh_configure_do'),
         'local' => array('openssh_configure_do'),
+        'newwanip' => array('openssh_configure_do:2'),
     );
 }
 
 function openssh_services()
 {
-    global $config;
-
     $services = array();
 
-    if (isset($config['system']['ssh']['enabled'])) {
+    if (openssh_enabled()) {
         $pconfig = array();
         $pconfig['description'] = gettext('Secure Shell Daemon');
         $pconfig['configd']['restart'] = array('openssh restart');
@@ -56,36 +63,47 @@ function openssh_services()
     return $services;
 }
 
-function openssh_configure_do($verbose = false)
+function openssh_stop()
+{
+    /* if run from a shell session, `-af' and the full path is needed */
+    mwexecf('/bin/pkill -af %s', '/usr/local/sbin/sshd', true);
+}
+
+function openssh_configure_do($verbose = false, $interface = '')
 {
     global $config;
 
-    /* if run from a shell session, `-af' and the full path is needed */
-    mwexecf('/bin/pkill -af %s', '/usr/local/sbin/sshd', true);
-
     $sshcfg = null;
 
-    if (isset($config['system']['ssh'])) {
-        if (isset($config['system']['ssh']['enabled'])) {
+    if (isset($config['system']['ssh']['enabled'])) {
         $sshcfg = $config['system']['ssh'];
-        }
-    } elseif (is_install_media()) {
+    } elseif (!isset($config['system']['ssh']['noauto']) && is_install_media()) {
         /* only revert to installer config when ssh is not set at all */
         $sshcfg = array('permitrootlogin' => 1, 'passwordauth' => 1);
     }
 
     if ($sshcfg === null) {
+        openssh_stop();
         return;
     }
+
+    $interfaces = array();
+    if (!empty($sshcfg['interfaces'])) {
+        $interfaces = explode(',', $sshcfg['interfaces']);
+        $interfaces[] = 'lo0';
+    }
+
+    if (!empty($interface) && !in_array($interface, $interfaces)) {
+        return;
+    }
+
+    openssh_stop();
 
     /* make sshd key store */
     @mkdir('/conf/sshd', 0777, true);
 
     /* make ssh home directory */
     @mkdir('/var/empty', 0555, true);
-
-    /* Login related files. */
-    touch('/var/log/lastlog');
 
     $keys = array(
         /* .pub files are implied */
@@ -106,22 +124,22 @@ function openssh_configure_do($verbose = false)
     foreach ($keys as $name) {
         $file = "/conf/sshd/{$name}";
         if (!file_exists($file) || !file_exists("{$file}.pub")) {
-        $generate_keys = true;
-        break;
+            $generate_keys = true;
+            break;
         }
     }
 
     if ($generate_keys) {
         if (is_subsystem_dirty('sshdkeys')) {
-        return;
+            return;
         }
         log_error('Started creating your SSH keys. SSH startup is being delayed a wee bit.');
         mark_subsystem_dirty('sshdkeys');
         foreach ($keys as $type => $name) {
-        $file = "/conf/sshd/{$name}";
-        @unlink("{$file}.pub");
-        @unlink($file);
-        mwexecf('/usr/local/bin/ssh-keygen -t %s -N "" -f %s', array($type, $file));
+            $file = "/conf/sshd/{$name}";
+            @unlink("{$file}.pub");
+            @unlink($file);
+            mwexecf('/usr/local/bin/ssh-keygen -t %s -N "" -f %s', array($type, $file));
         }
         clear_subsystem_dirty('sshdkeys');
         log_error('Completed creating your SSH keys. SSH will now be started.');
@@ -137,9 +155,16 @@ function openssh_configure_do($verbose = false)
     $sshconf .= "UseDNS no\n";
     $sshconf .= "X11Forwarding no\n";
     $sshconf .= "PubkeyAuthentication yes\n";
-    $sshconf .= "Subsystem\tsftp\tinternal-sftp\n";
+    $sshconf .= "Subsystem sftp internal-sftp\n";
+    $sshconf .= "AllowGroups wheel";
+    if (!empty($sshcfg['group'][0])) {
+        $sshconf .= " {$sshcfg['group'][0]}";
+    }
+    $sshconf .= "\n";
     if (isset($sshcfg['permitrootlogin'])) {
         $sshconf .= "PermitRootLogin yes\n";
+    } else {
+        $sshconf .= "PermitRootLogin no\n";
     }
     if (isset($sshcfg['passwordauth'])) {
         $sshconf .= "ChallengeResponseAuthentication yes\n";
@@ -147,6 +172,18 @@ function openssh_configure_do($verbose = false)
     } else {
         $sshconf .= "ChallengeResponseAuthentication no\n";
         $sshconf .= "PasswordAuthentication no\n";
+    }
+    if (!empty($sshcfg['kex'])) {
+        $sshconf .= "KexAlgorithms {$sshcfg['kex']}\n";
+    }
+    if (!empty($sshcfg['ciphers'])) {
+        $sshconf .= "Ciphers {$sshcfg['ciphers']}\n";
+    }
+    if (!empty($sshcfg['macs'])) {
+        $sshconf .= "MACs {$sshcfg['macs']}\n";
+    }
+    if (!empty($sshcfg['keys'])) {
+        $sshconf .= "HostKeyAlgorithms {$sshcfg['keys']}\n";
     }
     foreach ($keys_all as $name) {
         $file = "/conf/sshd/{$name}";
@@ -156,6 +193,21 @@ function openssh_configure_do($verbose = false)
         $sshconf .= "HostKey {$file}\n";
     }
 
+    $listeners = array();
+
+    foreach (interfaces_addresses($interfaces) as $tmpaddr => $info) {
+        if ($info['scope']) {
+            /* link-local does not seem to be supported */
+            continue;
+        }
+
+        $listeners[] = $tmpaddr;
+    }
+
+    foreach ($listeners as $listener) {
+        $sshconf .= "ListenAddress {$listener}\n";
+    }
+
     file_put_contents("/usr/local/etc/ssh/sshd_config", $sshconf);
 
     if ($verbose) {
@@ -163,7 +215,7 @@ function openssh_configure_do($verbose = false)
         flush();
     }
 
-    if (mwexecf('/usr/bin/protect -i /usr/local/sbin/sshd')) {
+    if ((count($interfaces) && !count($listeners)) || mwexecf('/usr/bin/protect -i /usr/local/sbin/sshd')) {
         if ($verbose) {
             echo "failed.\n";
         }

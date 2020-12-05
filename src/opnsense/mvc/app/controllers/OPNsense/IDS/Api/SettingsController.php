@@ -1,39 +1,39 @@
 <?php
-/**
- *    Copyright (C) 2015 Deciso B.V.
+
+/*
+ * Copyright (C) 2015-2017 Deciso B.V.
+ * All rights reserved.
  *
- *    All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
- *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace OPNsense\IDS\Api;
 
-use \Phalcon\Filter;
-use \OPNsense\Base\ApiMutableModelControllerBase;
-use \OPNsense\Base\Filters\QueryFilter;
-use \OPNsense\Core\Backend;
-use \OPNsense\Core\Config;
-use \OPNsense\Base\UIModelGrid;
+use Phalcon\Filter;
+use OPNsense\Base\ApiMutableModelControllerBase;
+use OPNsense\Base\Filters\QueryFilter;
+use OPNsense\Core\Backend;
+use OPNsense\Core\Config;
+use OPNsense\Base\UIModelGrid;
 
 /**
  * Class SettingsController Handles settings related API actions for the IDS module
@@ -41,11 +41,13 @@ use \OPNsense\Base\UIModelGrid;
  */
 class SettingsController extends ApiMutableModelControllerBase
 {
-    static protected $internalModelName = 'ids';
-    static protected $internalModelClass = '\OPNsense\IDS\IDS';
+    protected static $internalModelName = 'ids';
+    protected static $internalModelClass = '\OPNsense\IDS\IDS';
 
     /**
+     * Query non layered model items
      * @return array plain model settings (non repeating items)
+     * @throws \ReflectionException when not bound to model
      */
     protected function getModelNodes()
     {
@@ -59,8 +61,10 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * search installed ids rules
-     * @return array
+     * Search installed ids rules
+     * @return array query results
+     * @throws \Exception when configd action fails
+     * @throws \ReflectionException when not bound to model
      */
     public function searchInstalledRulesAction()
     {
@@ -88,34 +92,41 @@ class SettingsController extends ApiMutableModelControllerBase
                     if ($sortStr != '') {
                         $sortStr .= ',';
                     }
-                    $sortStr .= $filter->sanitize($sortKey, "query") . ' '. $sortOrd . ' ';
+                    $sortStr .= $filter->sanitize($sortKey, "query") . ' ' . $sortOrd . ' ';
                 }
             } else {
                 $sortStr = 'sid';
             }
             if ($this->request->getPost('searchPhrase', 'string', '') != "") {
                 $searchTag = $filter->sanitize($this->request->getPost('searchPhrase'), "query");
-                $searchPhrase = 'msg,source,sid/"*'.$searchTag.'"';
+                $searchPhrase = 'msg,source,sid/"*' . $searchTag . '"';
             } else {
                 $searchPhrase = '';
             }
 
-            // add filter for classtype
-            if ($this->request->getPost("classtype", "string", '') != "") {
-                $searchTag = $filter->sanitize($this->request->getPost('classtype'), "query");
-                $searchPhrase .= " classtype/".$searchTag.' ';
+            // add metadata filters
+            foreach ($_POST as $key => $value) {
+                $key = $filter->sanitize($key, "string");
+                $value = $filter->sanitize($value, "string");
+                if (!in_array($key, ['current', 'rowCount', 'sort', 'searchPhrase', 'action' ,'status'])) {
+                    $searchPhrase .= " {$key}/{$value} ";
+                }
             }
 
             // add filter for action
             if ($this->request->getPost("action", "string", '') != "") {
                 $searchTag = $filter->sanitize($this->request->getPost('action'), "query");
-                $searchPhrase .= " installed_action/".$searchTag.' ';
+                $searchPhrase .= " installed_action/" . $searchTag . ' ';
+            }
+            if ($this->request->getPost("status", "string", '') != "") {
+                $searchTag = $filter->sanitize($this->request->getPost('status'), "query");
+                $searchPhrase .= " installed_status/" . $searchTag . ' ';
             }
 
             // request list of installed rules
             $backend = new Backend();
             $response = $backend->configdpRun("ids query rules", array($itemsPerPage,
-                ($currentPage-1)*$itemsPerPage,
+                ($currentPage - 1) * $itemsPerPage,
                 $searchPhrase, $sortStr));
 
             $data = json_decode($response, true);
@@ -130,7 +141,7 @@ class SettingsController extends ApiMutableModelControllerBase
                     $row['action'] = $this->getModel()->getRuleAction($row['sid'], $row['action'], true);
                 }
 
-                $result['rowCount'] = count($result['rows']);
+                $result['rowCount'] = empty($result['rows']) || !is_array($result['rows']) ? 0 : count($result['rows']);
                 $result['total'] = $data['total_rows'];
                 $result['parameters'] = $data['parameters'];
                 $result['current'] = (int)$currentPage;
@@ -144,22 +155,25 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * get rule information
+     * Get rule information
      * @param string|null $sid rule identifier
      * @return array|mixed
+     * @throws \Exception when configd action fails
+     * @throws \ReflectionException when not bound to model
      */
     public function getRuleInfoAction($sid = null)
     {
         // request list of installed rules
         if (!empty($sid)) {
+            $this->sessionClose();
             $backend = new Backend();
-            $response = $backend->configdpRun("ids query rules", array(1, 0,'sid/'.$sid));
+            $response = $backend->configdpRun("ids query rules", array(1, 0,'sid/' . $sid));
             $data = json_decode($response, true);
         } else {
             $data = null;
         }
 
-        if ($data != null && array_key_exists("rows", $data) && count($data['rows'])>0) {
+        if ($data != null && array_key_exists("rows", $data) && !empty($data['rows'])) {
             $row = $data['rows'][0];
             // set current enable status (default + registered offset)
             $row['enabled_default'] = $row['enabled'];
@@ -174,33 +188,34 @@ class SettingsController extends ApiMutableModelControllerBase
                     $ref = trim($ref);
                     $item_html = '<small><a href="%url%" target="_blank">%ref%</a></small>';
                     if (substr($ref, 0, 4) == 'url,') {
-                        $item_html = str_replace("%url%", 'http://'.substr($ref, 4), $item_html);
+                        $item_html = str_replace("%url%", 'http://' . substr($ref, 4), $item_html);
                         $item_html = str_replace("%ref%", substr($ref, 4), $item_html);
                     } elseif (substr($ref, 0, 7) == "system,") {
                         $item_html = str_replace("%url%", substr($ref, 7), $item_html);
                         $item_html = str_replace("%ref%", substr($ref, 7), $item_html);
                     } elseif (substr($ref, 0, 8) == "bugtraq,") {
-                        $item_html = str_replace("%url%", "http://www.securityfocus.com/bid/".
+                        $item_html = str_replace("%url%", "http://www.securityfocus.com/bid/" .
                             substr($ref, 8), $item_html);
-                        $item_html = str_replace("%ref%", "bugtraq ".substr($ref, 8), $item_html);
+                        $item_html = str_replace("%ref%", "bugtraq " . substr($ref, 8), $item_html);
                     } elseif (substr($ref, 0, 4) == "cve,") {
-                        $item_html = str_replace("%url%", "http://cve.mitre.org/cgi-bin/cvename.cgi?name=".
+                        $item_html = str_replace("%url%", "http://cve.mitre.org/cgi-bin/cvename.cgi?name=" .
                             substr($ref, 4), $item_html);
                         $item_html = str_replace("%ref%", substr($ref, 4), $item_html);
                     } elseif (substr($ref, 0, 7) == "nessus,") {
-                        $item_html = str_replace("%url%", "http://cgi.nessus.org/plugins/dump.php3?id=".
+                        $item_html = str_replace("%url%", "http://cgi.nessus.org/plugins/dump.php3?id=" .
                             substr($ref, 7), $item_html);
-                        $item_html = str_replace("%ref%", 'nessus '.substr($ref, 7), $item_html);
+                        $item_html = str_replace("%ref%", 'nessus ' . substr($ref, 7), $item_html);
                     } elseif (substr($ref, 0, 7) == "mcafee,") {
-                        $item_html = str_replace("%url%", "http://vil.nai.com/vil/dispVirus.asp?virus_k=".
+                        $item_html = str_replace("%url%", "http://vil.nai.com/vil/dispVirus.asp?virus_k=" .
                             substr($ref, 7), $item_html);
-                        $item_html = str_replace("%ref%", 'macafee '.substr($ref, 7), $item_html);
+                        $item_html = str_replace("%ref%", 'macafee ' . substr($ref, 7), $item_html);
                     } else {
                         continue;
                     }
-                    $row['reference_html'] .= $item_html.'<br/>';
+                    $row['reference_html'] .= $item_html . '<br/>';
                 }
             }
+            ksort($row);
             return $row;
         } else {
             return array();
@@ -208,16 +223,16 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * list available classtypes
+     * List available rule metadata
      * @return array
-     * @throws \Exception
+     * @throws \Exception when configd action fails
      */
-    public function listRuleClasstypesAction()
+    public function listRuleMetadataAction()
     {
-        $backend = new Backend();
-        $response = $backend->configdRun("ids list classtypes");
+        $this->sessionClose();
+        $response = (new Backend())->configdRun("ids list rulemetadata");
         $data = json_decode($response, true);
-        if ($data != null && array_key_exists("items", $data)) {
+        if ($data != null) {
             return $data;
         } else {
             return array();
@@ -225,8 +240,10 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * list all installable rules including configuration additions
+     * List all installable rules including configuration additions
      * @return array
+     * @throws \Exception when configd action fails
+     * @throws \ReflectionException when not bound to model
      */
     private function listInstallableRules()
     {
@@ -242,7 +259,7 @@ class SettingsController extends ApiMutableModelControllerBase
                 $item['filename'] = $fileinfo['filename'];
                 $item['documentation_url'] = $fileinfo['documentation_url'];
                 if (!empty($fileinfo['documentation_url'])) {
-                    $item['documentation'] = "<a href='".$item['documentation_url']."' target='_new'>";
+                    $item['documentation'] = "<a href='" . $item['documentation_url'] . "' target='_new'>";
                     $item['documentation'] .= $item['documentation_url'];
                     $item['documentation'] .= '</a>';
                 } else {
@@ -258,8 +275,6 @@ class SettingsController extends ApiMutableModelControllerBase
                 // retrieve status from model
                 $fileNode = $this->getModel()->getFileNode($fileinfo['filename']);
                 $item['enabled'] = (string)$fileNode->enabled;
-                $item['filter'] = $fileNode->filter->getNodeData(); // filter (option list)
-                $item['filter_str'] = (string)$fileNode->filter; // filter current value
                 $result[] = $item;
             }
         }
@@ -267,19 +282,22 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * list ruleset properties
-     * @return array
+     * List ruleset properties
+     * @return array result status
+     * @throws \Exception when config actions fails
+     * @throws \ReflectionException when not bound to model
      */
     public function getRulesetpropertiesAction()
     {
         $result = array('properties' => array());
+        $this->sessionClose();
         $backend = new Backend();
         $response = $backend->configdRun("ids list installablerulesets");
         $data = json_decode($response, true);
         if ($data != null && isset($data["properties"])) {
             foreach ($data['properties'] as $key => $settings) {
                 $result['properties'][$key] = !empty($settings['default']) ? $settings['default'] : "";
-                foreach ($this->getModel()->fileTags->tag->__items as $tag) {
+                foreach ($this->getModel()->fileTags->tag->iterateItems() as $tag) {
                     if ((string)$tag->property == $key) {
                         $result['properties'][(string)$tag->property] = (string)$tag->value;
                     }
@@ -290,14 +308,18 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * update ruleset properties
-     * @return array
+     * Update ruleset properties
+     * @return array result status
+     * @throws \Exception when config action fails
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function setRulesetpropertiesAction()
     {
         $result = array("result" => "failed");
         if ($this->request->isPost() && $this->request->hasPost("properties")) {
             // only update properties available in "ids list installablerulesets"
+            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun("ids list installablerulesets");
             $data = json_decode($response, true);
@@ -310,7 +332,7 @@ class SettingsController extends ApiMutableModelControllerBase
                         }
                         $result['fields'][] = $key;
                         $resultTag = null;
-                        foreach ($this->getModel()->fileTags->tag->__items as $tag) {
+                        foreach ($this->getModel()->fileTags->tag->iterateItems() as $tag) {
                             if ((string)$tag->property == $key) {
                                 $resultTag = $tag;
                                 break;
@@ -324,12 +346,10 @@ class SettingsController extends ApiMutableModelControllerBase
                     }
                 }
                 $validations = $this->getModel()->validate();
-                if (count($validations)) {
+                if (!empty($validations)) {
                     $result['validations'] = $validations;
                 } else {
-                    $this->getModel()->serializeToConfig();
-                    Config::getInstance()->save();
-                    $result["result"] = "saved";
+                    $result = $this->save();
                 }
             }
         }
@@ -337,31 +357,35 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * list all installable rules including current status
+     * List all installable rules including current status
      * @return array|mixed list of items when $id is null otherwise the selected item is returned
      * @throws \Exception
      */
     public function listRulesetsAction()
     {
         $result = array();
+        $this->sessionClose();
         $result['rows'] = $this->listInstallableRules();
         // sort by description
         usort($result['rows'], function ($item1, $item2) {
             return strcmp(strtolower($item1['description']), strtolower($item2['description']));
         });
-        $result['rowCount'] = count($result['rows']);
-        $result['total'] = count($result['rows']);
+        $result['rowCount'] = empty($result['rows']) ? 0 :  count($result['rows']);
+        $result['total'] = empty($result['rows']) ? 0 : count($result['rows']);
         $result['current'] = 1;
         return $result;
     }
 
     /**
-     * get ruleset list info (file)
+     * Get ruleset list info (file)
      * @param string $id list filename
      * @return array|mixed list details
+     * @throws \Exception when configd action fails
+     * @throws \ReflectionException when not bound to model
      */
     public function getRulesetAction($id)
     {
+        $this->sessionClose();
         $rules = $this->listInstallableRules();
         foreach ($rules as $rule) {
             if ($rule['filename'] == $id) {
@@ -372,15 +396,19 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * set ruleset attributes
+     * Set ruleset attributes
      * @param $filename rule filename (key)
-     * @return array
+     * @return array result status
+     * @throws \Exception when configd action fails
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function setRulesetAction($filename)
     {
         $result = array("result" => "failed");
         if ($this->request->isPost()) {
             // we're only allowed to edit filenames which have an install ruleset, request valid ones from configd
+            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun("ids list installablerulesets");
             $data = json_decode($response, true);
@@ -393,13 +421,10 @@ class SettingsController extends ApiMutableModelControllerBase
                 $node->setNodes($_POST);
 
                 $validations = $mdlIDS->validate($node->__reference . ".", "");
-                if (count($validations)) {
+                if (!empty($validations)) {
                     $result['validations'] = $validations;
                 } else {
-                    // serialize model to config and save
-                    $mdlIDS->serializeToConfig();
-                    Config::getInstance()->save();
-                    $result["result"] = "saved";
+                    $result = $this->save();
                 }
             }
         }
@@ -407,7 +432,7 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * toggle usage of rule file or set enabled / disabled depending on parameters
+     * Toggle usage of rule file or set enabled / disabled depending on parameters
      * @param $filenames (target) rule file name, or list of filenames separated by a comma
      * @param $enabled desired state enabled(1)/disabled(1), leave empty for toggle
      * @return array status 0/1 or error
@@ -419,6 +444,7 @@ class SettingsController extends ApiMutableModelControllerBase
         $update_count = 0;
         $result = array("status" => "none");
         if ($this->request->isPost()) {
+            $this->sessionClose();
             $backend = new Backend();
             $response = $backend->configdRun("ids list installablerulesets");
             $data = json_decode($response, true);
@@ -442,26 +468,35 @@ class SettingsController extends ApiMutableModelControllerBase
                 }
             }
             if ($update_count > 0) {
-                $this->getModel()->serializeToConfig();
-                Config::getInstance()->save();
+                $this->save();
             }
         }
         return $result;
     }
 
     /**
-     * toggle rule enable status
+     * Toggle rule enable status
      * @param string $sids unique id
      * @param string|int $enabled desired state enabled(1)/disabled(1), leave empty for toggle
      * @return array empty
+     * @throws \Exception when configd action fails
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function toggleRuleAction($sids, $enabled = null)
     {
         if ($this->request->isPost()) {
+            $this->sessionClose();
             $update_count = 0;
             foreach (explode(",", $sids) as $sid) {
                 $ruleinfo = $this->getRuleInfoAction($sid);
-                if (count($ruleinfo) > 0) {
+                $current_action = null;
+                foreach ($ruleinfo['action'] as $key => $act) {
+                    if (!empty($act['selected'])) {
+                        $current_action = $key;
+                    }
+                }
+                if (!empty($ruleinfo)) {
                     if ($enabled == null) {
                         // toggle state
                         if ($ruleinfo['enabled'] == 1) {
@@ -471,48 +506,57 @@ class SettingsController extends ApiMutableModelControllerBase
                         }
                     } elseif ($enabled == 1) {
                         $new_state = 1;
+                    } elseif ($enabled == "alert") {
+                        $current_action = "alert";
+                        $new_state = 1;
+                    } elseif ($enabled == "drop") {
+                        $current_action = "drop";
+                        $new_state = 1;
                     } else {
                         $new_state = 0;
                     }
-
-                    if ($ruleinfo['enabled_default'] == $new_state &&
-                        array_key_exists($ruleinfo['action_default'], $ruleinfo['action']) &&
-                        $ruleinfo['action'][$ruleinfo['action_default']]['selected'] == 1
-                        ) {
+                    if ($ruleinfo['enabled_default'] == $new_state && $current_action == $ruleinfo['action_default']) {
                         // if we're switching back to default, remove alter rule
                         $this->getModel()->removeRule($sid);
                     } elseif ($new_state == 1) {
-                        $this->getModel()->enableRule($sid);
+                        $this->getModel()->enableRule($sid)->action = $current_action;
                     } else {
-                        $this->getModel()->disableRule($sid);
+                        $this->getModel()->disableRule($sid)->action = $current_action;
                     }
                     $update_count++;
                 }
             }
             if ($update_count > 0) {
-                $this->getModel()->serializeToConfig();
-                Config::getInstance()->save();
+                return $this->save();
             }
         }
         return array();
     }
 
     /**
-     * set rule action
+     * Set rule action
      * @param $sid item unique id
-     * @return array
+     * @return array result status
+     * @throws \Exception when configd action fails
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function setRuleAction($sid)
     {
         $result = array("result" => "failed");
         if ($this->request->isPost() && $this->request->hasPost("action")) {
+            $this->sessionClose();
+            if ($this->request->hasPost('enabled')) {
+                $this->toggleRuleAction($sid, $this->request->getPost("enabled", "int", null));
+            }
             $ruleinfo = $this->getRuleInfoAction($sid);
             $newAction = $this->request->getPost("action", "striptags", null);
-            if (count($ruleinfo) > 0) {
+            if (!empty($ruleinfo)) {
                 $mdlIDS = $this->getModel();
-                if ($ruleinfo['enabled_default'] == $ruleinfo['enabled'] &&
+                if (
+                    $ruleinfo['enabled_default'] == $ruleinfo['enabled'] &&
                     $ruleinfo['action_default'] == $newAction
-                    ) {
+                ) {
                     // if we're switching back to default, remove alter rule
                     $mdlIDS->removeRule($sid);
                 } else {
@@ -520,12 +564,10 @@ class SettingsController extends ApiMutableModelControllerBase
                 }
 
                 $validations = $mdlIDS->validate();
-                if (count($validations)) {
+                if (!empty($validations)) {
                     $result['validations'] = $validations;
                 } else {
-                    $mdlIDS->serializeToConfig();
-                    Config::getInstance()->save();
-                    $result["result"] = "saved";
+                    return $this->save();
                 }
             }
         }
@@ -533,147 +575,140 @@ class SettingsController extends ApiMutableModelControllerBase
     }
 
     /**
-     * search user defined rules
+     * Search user defined rules
      * @return array list of found user rules
+     * @throws \ReflectionException when not bound to model
      */
     public function searchUserRuleAction()
     {
-        $this->sessionClose();
-        $mdlIDS = $this->getModel();
-        $grid = new UIModelGrid($mdlIDS->userDefinedRules->rule);
-        return $grid->fetchBindRequest(
-            $this->request,
-            array("enabled", "action", "description"),
-            "description"
-        );
+        return $this->searchBase("userDefinedRules.rule", array("enabled", "action", "description"), "description");
     }
 
     /**
-     * update user defined rules
+     * Update user defined rules
      * @param string $uuid internal id
      * @return array save result + validation output
-     * @throws \Phalcon\Validation\Exception
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function setUserRuleAction($uuid)
     {
-        $result = array("result"=>"failed");
-        if ($this->request->isPost() && $this->request->hasPost("rule")) {
-            $mdlIDS = $this->getModel();
-            if ($uuid != null) {
-                $node = $mdlIDS->getNodeByReference('userDefinedRules.rule.'.$uuid);
-                if ($node != null) {
-                    $node->setNodes($this->request->getPost("rule"));
-                    $validations = $mdlIDS->validate($node->__reference, "rule");
-                    if (count($validations)) {
-                        $result['validations'] = $validations;
-                    } else {
-                        // serialize model to config and save
-                        $mdlIDS->serializeToConfig();
-                        Config::getInstance()->save();
-                        $result["result"] = "saved";
-                    }
-                }
-            }
-        }
-        return $result;
+        return $this->setBase("rule", "userDefinedRules.rule", $uuid);
     }
 
     /**
-     * add new user defined rule
+     * Add new user defined rule
      * @return array save result + validation output
-     * @throws \Phalcon\Validation\Exception
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function addUserRuleAction()
     {
-        $result = array("result"=>"failed");
-        if ($this->request->isPost() && $this->request->hasPost("rule")) {
-            $mdlIDS = $this->getModel();
-            $node = $mdlIDS->userDefinedRules->rule->Add();
-            $node->setNodes($this->request->getPost("rule"));
-            $validations = $mdlIDS->validate($node->__reference, "rule");
-            if (count($validations)) {
-                $result['validations'] = $validations;
-            } else {
-                // serialize model to config and save
-                $mdlIDS->serializeToConfig();
-                Config::getInstance()->save();
-                $result["result"] = "saved";
-            }
-        }
-        return $result;
+        return $this->addBase("rule", "userDefinedRules.rule");
     }
 
     /**
-     * get properties of user defined rule
+     * Get properties of user defined rule
      * @param null|string $uuid user rule internal id
      * @return array user defined properties
+     * @throws \ReflectionException when not bound to model
      */
     public function getUserRuleAction($uuid = null)
     {
-        $mdlIDS = $this->getModel();
-        if ($uuid != null) {
-            $node = $mdlIDS->getNodeByReference('userDefinedRules.rule.'.$uuid);
-            if ($node != null) {
-                // return node
-                return array("rule" => $node->getNodes());
-            }
-        } else {
-            // generate new node, but don't save to disc
-            $node = $mdlIDS->userDefinedRules->rule->add();
-            return array("rule" => $node->getNodes());
-        }
-        return array();
+        return $this->getBase("rule", "userDefinedRules.rule", $uuid);
     }
 
     /**
-     * delete user rule item
+     * Delete user rule item
      * @param string $uuid user rule internal id
-     * @return array
-     * @throws \Phalcon\Validation\Exception
+     * @return array save status
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function delUserRuleAction($uuid)
     {
-        $result = array("result"=>"failed");
-        if ($this->request->isPost() && $uuid != null) {
-            $mdlIDS = $this->getModel();
-            if ($mdlIDS->userDefinedRules->rule->del($uuid)) {
-                // if item is removed, serialize to config and save
-                $mdlIDS->serializeToConfig();
-                Config::getInstance()->save();
-                $result['result'] = 'deleted';
-            } else {
-                $result['result'] = 'not found';
-            }
-        }
-        return $result;
+        return  $this->delBase("userDefinedRules.rule", $uuid);
     }
 
     /**
-     * toggle user defined rule by uuid (enable/disable)
+     * Toggle user defined rule by uuid (enable/disable)
      * @param $uuid user defined rule internal id
      * @param $enabled desired state enabled(1)/disabled(1), leave empty for toggle
-     * @return array status
+     * @return array save result
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
      */
     public function toggleUserRuleAction($uuid, $enabled = null)
     {
-        $result = array("result" => "failed");
-        if ($this->request->isPost() && $uuid != null) {
-            $mdlIDS = $this->getModel();
-            $node = $mdlIDS->getNodeByReference('userDefinedRules.rule.' . $uuid);
-            if ($node != null) {
-                if ($enabled == "0" || $enabled == "1") {
-                    $node->enabled = (string)$enabled;
-                } elseif ($node->enabled->__toString() == "1") {
-                    $node->enabled = "0";
-                } else {
-                    $node->enabled = "1";
-                }
-                $result['result'] = $node->enabled;
-                // if item has toggled, serialize to config and save
-                $mdlIDS->serializeToConfig();
-                Config::getInstance()->save();
-            }
-        }
-        return $result;
+        return $this->toggleBase("userDefinedRules.rule", $uuid, $enabled);
+    }
+
+    /**
+     * Search policy
+     * @return array list of found user rules
+     * @throws \ReflectionException when not bound to model
+     */
+    public function searchPolicyAction()
+    {
+        return $this->searchBase("policies.policy", array("enabled", "prio", "description"), "description");
+    }
+
+    /**
+     * Update policy
+     * @param string $uuid internal id
+     * @return array save result + validation output
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
+     */
+    public function setPolicyAction($uuid)
+    {
+        return $this->setBase("policy", "policies.policy", $uuid);
+    }
+
+    /**
+     * Add new policy
+     * @return array save result + validation output
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
+     */
+    public function addPolicyAction()
+    {
+        return $this->addBase("policy", "policies.policy");
+    }
+
+    /**
+     * Get properties of a policy
+     * @param null|string $uuid user rule internal id
+     * @return array user defined properties
+     * @throws \ReflectionException when not bound to model
+     */
+    public function getPolicyAction($uuid = null)
+    {
+        return $this->getBase("policy", "policies.policy", $uuid);
+    }
+
+    /**
+     * Delete policy item
+     * @param string $uuid user rule internal id
+     * @return array save status
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
+     */
+    public function delPolicyAction($uuid)
+    {
+        return  $this->delBase("policies.policy", $uuid);
+    }
+
+    /**
+     * Toggle policy by uuid (enable/disable)
+     * @param $uuid user defined rule internal id
+     * @param $enabled desired state enabled(1)/disabled(1), leave empty for toggle
+     * @return array save result
+     * @throws \Phalcon\Validation\Exception when field validations fail
+     * @throws \ReflectionException when not bound to model
+     */
+    public function togglePolicyAction($uuid, $enabled = null)
+    {
+        return $this->toggleBase("policies.policy", $uuid, $enabled);
     }
 }

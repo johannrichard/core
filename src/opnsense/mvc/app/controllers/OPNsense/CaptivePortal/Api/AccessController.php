@@ -1,50 +1,51 @@
 <?php
-/**
- *    Copyright (C) 2015 Deciso B.V.
+
+/*
+ * Copyright (C) 2015 Deciso B.V.
+ * All rights reserved.
  *
- *    All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
- *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace OPNsense\CaptivePortal\Api;
 
-use \OPNsense\Base\ApiControllerBase;
-use \OPNsense\Core\Backend;
-use \OPNsense\Auth\AuthenticationFactory;
-use \OPNsense\CaptivePortal\CaptivePortal;
+use OPNsense\Base\ApiControllerBase;
+use OPNsense\Core\Backend;
+use OPNsense\Auth\AuthenticationFactory;
+use OPNsense\CaptivePortal\CaptivePortal;
 
 /**
- * Class ServiceController
+ * Class AccessController
  * @package OPNsense\CaptivePortal
  */
 class AccessController extends ApiControllerBase
 {
     /**
      * request client session data
-     * @param $zoneid captive portal zone
+     * @param string $zoneid captive portal zone
      * @return array
+     * @throws \OPNsense\Base\ModelException
      */
-    private function clientSession($zoneid)
+    private function clientSession(string $zoneid)
     {
         $backend = new Backend();
         $allClientsRaw = $backend->configdpRun(
@@ -83,7 +84,8 @@ class AccessController extends ApiControllerBase
     {
         // determine orginal sender of this request
         $trusted_proxy = array(); // optional, not implemented
-        if ($this->request->getHeader('X-Forwarded-For') != "" &&
+        if (
+            $this->request->getHeader('X-Forwarded-For') != "" &&
             (
             explode('.', $this->request->getClientAddress())[0] == '127' ||
             in_array($this->request->getClientAddress(), $trusted_proxy)
@@ -100,7 +102,7 @@ class AccessController extends ApiControllerBase
     /**
      * before routing event
      * @param Dispatcher $dispatcher
-     * @return null|bool
+     * @return void
      */
     public function beforeExecuteRoute($dispatcher)
     {
@@ -114,6 +116,7 @@ class AccessController extends ApiControllerBase
      * logon client to zone, must use post type of request
      * @param int|string zone id number
      * @return array
+     * @throws \OPNsense\Base\ModelException
      */
     public function logonAction($zoneid = 0)
     {
@@ -166,9 +169,9 @@ class AccessController extends ApiControllerBase
                 }
 
                 if ($isAuthenticated) {
-                    $this->getLogger("captiveportal")->info("AUTH " . $userName .  " (".$clientIp.") zone " . $zoneid);
+                    $this->getLogger("captiveportal")->info("AUTH " . $userName .  " (" . $clientIp . ") zone " . $zoneid);
                     // when authenticated, we have $authServer available to request additional data if needed
-                    $clientSession = $this->clientSession((string)$cpZone->zoneid);
+                    $clientSession = $this->clientSession($cpZone->zoneid);
                     if ($clientSession['clientState'] == 'AUTHORIZED') {
                         // already authorized, return current session
                         return $clientSession;
@@ -191,12 +194,12 @@ class AccessController extends ApiControllerBase
                             $authProps = $authServer->getLastAuthProperties();
                             // when adding more client/session restrictions, extend next code
                             // (currently only time is restricted)
-                            if (array_key_exists('session_timeout', $authProps)) {
+                            if (array_key_exists('session_timeout', $authProps) || $cpZone->alwaysSendAccountingReqs == '1') {
                                 $backend->configdpRun(
                                     "captiveportal set session_restrictions",
                                     array((string)$cpZone->zoneid,
                                         $CPsession['sessionId'],
-                                        $authProps['session_timeout']
+                                        $authProps['session_timeout'] ?? null,
                                         )
                                 );
                             }
@@ -208,7 +211,7 @@ class AccessController extends ApiControllerBase
                         }
                     }
                 } else {
-                    $this->getLogger("captiveportal")->info("DENY " . $userName .  " (".$clientIp.") zone " . $zoneid);
+                    $this->getLogger("captiveportal")->info("DENY " . $userName .  " (" . $clientIp . ") zone " . $zoneid);
                     return array("clientState" => 'NOT_AUTHORIZED', "ipAddress" => $clientIp);
                 }
             }
@@ -222,6 +225,7 @@ class AccessController extends ApiControllerBase
      * logoff client
      * @param int|string zone id number
      * @return array
+     * @throws \OPNsense\Base\ModelException
      */
     public function logoffAction($zoneid = 0)
     {
@@ -231,7 +235,8 @@ class AccessController extends ApiControllerBase
         } else {
             $this->sessionClose();
             $clientSession = $this->clientSession((string)$zoneid);
-            if ($clientSession['clientState'] == 'AUTHORIZED' &&
+            if (
+                $clientSession['clientState'] == 'AUTHORIZED' &&
                 $clientSession['authenticated_via'] != '---ip---' &&
                 $clientSession['authenticated_via'] != '---mac---'
             ) {
@@ -244,7 +249,7 @@ class AccessController extends ApiControllerBase
                 $status = json_decode($statusRAW, true);
                 if ($status != null) {
                     $this->getLogger("captiveportal")->info(
-                        "LOGOUT " . $clientSession['userName'] .  " (".$this->getClientIp().") zone " . $zoneid
+                        "LOGOUT " . $clientSession['userName'] .  " (" . $this->getClientIp() . ") zone " . $zoneid
                     );
                     return $status;
                 }
@@ -257,6 +262,7 @@ class AccessController extends ApiControllerBase
      * retrieve session info
      * @param int|string zone id number
      * @return array
+     * @throws \OPNsense\Base\ModelException
      */
     public function statusAction($zoneid = 0)
     {

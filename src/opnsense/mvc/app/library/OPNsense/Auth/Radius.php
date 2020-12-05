@@ -144,14 +144,15 @@ class Radius extends Base implements IAuthConnector
             $radius = radius_auth_open();
 
             $error = null;
-            if (!radius_add_server(
-                $radius,
-                $this->radiusHost,
-                $this->acctPort,
-                $this->sharedSecret,
-                $this->timeout,
-                $this->maxRetries
-            )
+            if (
+                !radius_add_server(
+                    $radius,
+                    $this->radiusHost,
+                    $this->acctPort,
+                    $this->sharedSecret,
+                    $this->timeout,
+                    $this->maxRetries
+                )
             ) {
                 $error = radius_strerror($radius);
             } elseif (!radius_create_request($radius, RADIUS_ACCOUNTING_REQUEST)) {
@@ -197,25 +198,29 @@ class Radius extends Base implements IAuthConnector
 
     /**
      * stop radius accounting
-     * @param $username     user name
-     * @param $sessionid    session id
-     * @param $session_time total time spend on this session
+     * @param string $username user name
+     * @param string $sessionid session id
+     * @param int $session_time total time spent on this session
+     * @param $bytes_in
+     * @param $bytes_out
+     * @param $ip_address
      */
-    public function stopAccounting($username, $sessionid, $session_time)
+    public function stopAccounting($username, $sessionid, $session_time, $bytes_in, $bytes_out, $ip_address)
     {
         // only send messages if target port specified
         if ($this->acctPort != null) {
             $radius = radius_auth_open();
 
             $error = null;
-            if (!radius_add_server(
-                $radius,
-                $this->radiusHost,
-                $this->acctPort,
-                $this->sharedSecret,
-                $this->timeout,
-                $this->maxRetries
-            )
+            if (
+                !radius_add_server(
+                    $radius,
+                    $this->radiusHost,
+                    $this->acctPort,
+                    $this->sharedSecret,
+                    $this->timeout,
+                    $this->maxRetries
+                )
             ) {
                 $error = radius_strerror($radius);
             } elseif (!radius_create_request($radius, RADIUS_ACCOUNTING_REQUEST)) {
@@ -239,6 +244,12 @@ class Radius extends Base implements IAuthConnector
             } elseif (!radius_put_int($radius, RADIUS_ACCT_AUTHENTIC, RADIUS_AUTH_LOCAL)) {
                 $error = radius_strerror($radius);
             } elseif (!radius_put_int($radius, RADIUS_ACCT_SESSION_TIME, $session_time)) {
+                $error = radius_strerror($radius);
+            } elseif (!radius_put_int($radius, RADIUS_ACCT_INPUT_OCTETS, $bytes_in)) {
+                $error = radius_strerror($radius);
+            } elseif (!radius_put_int($radius, RADIUS_ACCT_OUTPUT_OCTETS, $bytes_out)) {
+                $error = radius_strerror($radius);
+            } elseif (!radius_put_addr($radius, RADIUS_FRAMED_IP_ADDRESS, $ip_address)) {
                 $error = radius_strerror($radius);
             } elseif (!radius_put_int($radius, RADIUS_ACCT_TERMINATE_CAUSE, RADIUS_TERM_USER_REQUEST)) {
                 $error = radius_strerror($radius);
@@ -265,11 +276,14 @@ class Radius extends Base implements IAuthConnector
 
     /**
      * update radius accounting (interim update)
-     * @param $username     user name
-     * @param $sessionid    session id
-     * @param $session_time total time spend on this session
+     * @param string $username user name
+     * @param string $sessionid session id
+     * @param int $session_time total time spend on this session
+     * @param $bytes_in
+     * @param $bytes_out
+     * @param $ip_address
      */
-    public function updateAccounting($username, $sessionid, $session_time)
+    public function updateAccounting($username, $sessionid, $session_time, $bytes_in, $bytes_out, $ip_address)
     {
         // only send messages if target port specified
         if ($this->acctPort != null) {
@@ -279,14 +293,15 @@ class Radius extends Base implements IAuthConnector
             }
 
             $error = null;
-            if (!radius_add_server(
-                $radius,
-                $this->radiusHost,
-                $this->acctPort,
-                $this->sharedSecret,
-                $this->timeout,
-                $this->maxRetries
-            )
+            if (
+                !radius_add_server(
+                    $radius,
+                    $this->radiusHost,
+                    $this->acctPort,
+                    $this->sharedSecret,
+                    $this->timeout,
+                    $this->maxRetries
+                )
             ) {
                 $error = radius_strerror($radius);
             } elseif (!radius_create_request($radius, RADIUS_ACCOUNTING_REQUEST)) {
@@ -311,6 +326,12 @@ class Radius extends Base implements IAuthConnector
                 $error = radius_strerror($radius);
             } elseif (!radius_put_int($radius, RADIUS_ACCT_SESSION_TIME, $session_time)) {
                 $error = radius_strerror($radius);
+            } elseif (!radius_put_int($radius, RADIUS_ACCT_INPUT_OCTETS, $bytes_in)) {
+                $error = radius_strerror($radius);
+            } elseif (!radius_put_int($radius, RADIUS_ACCT_OUTPUT_OCTETS, $bytes_out)) {
+                $error = radius_strerror($radius);
+            } elseif (!radius_put_addr($radius, RADIUS_FRAMED_IP_ADDRESS, $ip_address)) {
+                $error = radius_strerror($radius);
             }
 
             if ($error != null) {
@@ -334,8 +355,8 @@ class Radius extends Base implements IAuthConnector
 
     /**
      * authenticate user against radius
-     * @param $username username to authenticate
-     * @param $password user password
+     * @param string $username username to authenticate
+     * @param string $password user password
      * @return bool authentication status
      */
     public function authenticate($username, $password)
@@ -344,14 +365,16 @@ class Radius extends Base implements IAuthConnector
         $radius = radius_auth_open();
 
         $error = null;
-        if (!radius_add_server(
-            $radius,
-            $this->radiusHost,
-            $this->authPort,
-            $this->sharedSecret,
-            $this->timeout,
-            $this->maxRetries
-        )) {
+        if (
+            !radius_add_server(
+                $radius,
+                $this->radiusHost,
+                $this->authPort,
+                $this->sharedSecret,
+                $this->timeout,
+                $this->maxRetries
+            )
+        ) {
             $error = radius_strerror($radius);
         } elseif (!radius_create_request($radius, RADIUS_ACCESS_REQUEST)) {
             $error = radius_strerror($radius);
@@ -377,7 +400,7 @@ class Radius extends Base implements IAuthConnector
                     }
                     break;
                 default:
-                    syslog(LOG_ERR, 'Unsupported protocol '.$this->protocol);
+                    syslog(LOG_ERR, 'Unsupported protocol ' . $this->protocol);
                     return false;
             }
         }
@@ -399,6 +422,18 @@ class Radius extends Base implements IAuthConnector
                                     break;
                                 case 85: // Acct-Interim-Interval
                                     $this->lastAuthProperties['Acct-Interim-Interval'] =  radius_cvt_int($resa['data']);
+                                    break;
+                                case RADIUS_FRAMED_IP_ADDRESS:
+                                    $this->lastAuthProperties['Framed-IP-Address'] =  radius_cvt_addr($resa['data']);
+                                    break;
+                                case RADIUS_FRAMED_IP_NETMASK:
+                                    $this->lastAuthProperties['Framed-IP-Netmask'] =  radius_cvt_addr($resa['data']);
+                                    break;
+                                case RADIUS_FRAMED_ROUTE:
+                                    if (empty($this->lastAuthProperties['Framed-Route'])) {
+                                        $this->lastAuthProperties['Framed-Route'] = array();
+                                    }
+                                    $this->lastAuthProperties['Framed-Route'][] =  $resa['data'];
                                     break;
                                 default:
                                     break;

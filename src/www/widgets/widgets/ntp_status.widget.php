@@ -3,8 +3,9 @@
 /*
     Copyright (C) 2014 Deciso B.V.
     Copyright (c) 2007 Scott Dale
-    Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>, Manuel Kasper <mk@neon1.net>
-    and Jonathan Watt <jwatt@jwatt.org>.
+    Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>
+    Copyright (C) 2004-2005 Manuel Kasper <mk@neon1.net>
+    Copyright (C) 2004-2005 Jonathan Watt <jwatt@jwatt.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -64,27 +65,31 @@ if ($_REQUEST['updateme']) {
             if (substr($tmp, 0, 6) == '$GPRMC') {
                 $gps_vars = explode(",", $tmp);
                 $gps_ok  = ($gps_vars[2] == "A");
-                $gps_lat_deg = substr($gps_vars[3], 0, 2);
-                $gps_lat_min = substr($gps_vars[3], 2) / 60.0;
-                $gps_lon_deg = substr($gps_vars[5], 0, 3);
-                $gps_lon_min = substr($gps_vars[5], 3) / 60.0;
-                $gps_lat = $gps_lat_deg + $gps_lat_min;
-                $gps_lat = $gps_lat * (($gps_vars[4] == "N") ? 1 : -1);
-                $gps_lon = $gps_lon_deg + $gps_lon_min;
-                $gps_lon = $gps_lon * (($gps_vars[6] == "E") ? 1 : -1);
+                if ($gps_ok) {
+                    $gps_lat_deg = substr($gps_vars[3], 0, 2);
+                    $gps_lat_min = substr($gps_vars[3], 2) / 60.0;
+                    $gps_lon_deg = substr($gps_vars[5], 0, 3);
+                    $gps_lon_min = substr($gps_vars[5], 3) / 60.0;
+                    $gps_lat = $gps_lat_deg + $gps_lat_min;
+                    $gps_lat = $gps_lat * (($gps_vars[4] == "N") ? 1 : -1);
+                    $gps_lon = $gps_lon_deg + $gps_lon_min;
+                    $gps_lon = $gps_lon * (($gps_vars[6] == "E") ? 1 : -1);
+                }
                 $gps_la = $gps_vars[4];
                 $gps_lo = $gps_vars[6];
             } elseif (substr($tmp, 0, 6) == '$GPGGA') {
                 $gps_vars = explode(",", $tmp);
                 $gps_ok  = $gps_vars[6];
-                $gps_lat_deg = substr($gps_vars[2], 0, 2);
-                $gps_lat_min = substr($gps_vars[2], 2) / 60.0;
-                $gps_lon_deg = substr($gps_vars[4], 0, 3);
-                $gps_lon_min = substr($gps_vars[4], 3) / 60.0;
-                $gps_lat = $gps_lat_deg + $gps_lat_min;
-                $gps_lat = $gps_lat * (($gps_vars[3] == "N") ? 1 : -1);
-                $gps_lon = $gps_lon_deg + $gps_lon_min;
-                $gps_lon = $gps_lon * (($gps_vars[5] == "E") ? 1 : -1);
+                if ($gps_ok) {
+                    $gps_lat_deg = substr($gps_vars[2], 0, 2);
+                    $gps_lat_min = substr($gps_vars[2], 2) / 60.0;
+                    $gps_lon_deg = substr($gps_vars[4], 0, 3);
+                    $gps_lon_min = substr($gps_vars[4], 3) / 60.0;
+                    $gps_lat = $gps_lat_deg + $gps_lat_min;
+                    $gps_lat = $gps_lat * (($gps_vars[3] == "N") ? 1 : -1);
+                    $gps_lon = $gps_lon_deg + $gps_lon_min;
+                    $gps_lon = $gps_lon * (($gps_vars[5] == "E") ? 1 : -1);
+                }
                 $gps_alt = $gps_vars[9];
                 $gps_alt_unit = $gps_vars[10];
                 $gps_sat = $gps_vars[7];
@@ -93,14 +98,16 @@ if ($_REQUEST['updateme']) {
             } elseif (substr($tmp, 0, 6) == '$GPGLL') {
                 $gps_vars = explode(",", $tmp);
                 $gps_ok  = ($gps_vars[6] == "A");
-                $gps_lat_deg = substr($gps_vars[1], 0, 2);
-                $gps_lat_min = substr($gps_vars[1], 2) / 60.0;
-                $gps_lon_deg = substr($gps_vars[3], 0, 3);
-                $gps_lon_min = substr($gps_vars[3], 3) / 60.0;
-                $gps_lat = $gps_lat_deg + $gps_lat_min;
-                $gps_lat = $gps_lat * (($gps_vars[2] == "N") ? 1 : -1);
-                $gps_lon = $gps_lon_deg + $gps_lon_min;
-                $gps_lon = $gps_lon * (($gps_vars[4] == "E") ? 1 : -1);
+                if ($gps_ok) {
+                    $gps_lat_deg = substr($gps_vars[1], 0, 2);
+                    $gps_lat_min = substr($gps_vars[1], 2) / 60.0;
+                    $gps_lon_deg = substr($gps_vars[3], 0, 3);
+                    $gps_lon_min = substr($gps_vars[3], 3) / 60.0;
+                    $gps_lat = $gps_lat_deg + $gps_lat_min;
+                    $gps_lat = $gps_lat * (($gps_vars[2] == "N") ? 1 : -1);
+                    $gps_lon = $gps_lon_deg + $gps_lon_min;
+                    $gps_lon = $gps_lon * (($gps_vars[4] == "E") ? 1 : -1);
+                }
                 $gps_la = $gps_vars[2];
                 $gps_lo = $gps_vars[4];
             }
@@ -125,8 +132,8 @@ if ($_REQUEST['updateme']) {
 <table >
   <tbody>
     <tr>
-      <td width="40%" class="vncellt">Sync Source</td>
-      <td width="60%" class="listr">
+      <td style="width:40%">Sync Source</td>
+      <td style="width:60%">
       <?php if ($ntpq_counter == 0) :
 ?>
         <?= gettext('No active peers available') ?>
@@ -141,8 +148,8 @@ endif; ?>
     <?php if (($gps_ok) && ($gps_lat) && ($gps_lon)) :
 ?>
       <tr>
-        <td width="40%" class="vncellt"><?= gettext('Clock location') ?></td>
-        <td width="60%" class="listr">
+        <td style="width:40%"><?= gettext('Clock location') ?></td>
+        <td style="width:60%">
           <a target="_gmaps" href="http://maps.google.com/?q=<?= html_safe($gps_lat) ?>,<?= html_safe($gps_lon) ?>">
           <?php
                     echo sprintf("%.5f", $gps_lat) . " " . $gps_la . ", " . sprintf("%.5f", $gps_lon) . " " . $gps_lo; ?>
@@ -155,8 +162,8 @@ endif; ?>
       <?php if (isset($gps_sat) || isset($gps_satview)) :
 ?>
         <tr>
-        <td width="40%" class="vncellt"><?= gettext('Satellites') ?></td>
-          <td width="60%" class="listr">
+          <td style="width:40%"><?= gettext('Satellites') ?></td>
+          <td style="width:60%">
           <?php
                     if (isset($gps_satview)) {
                         echo gettext('in view ') . intval($gps_satview);
@@ -207,11 +214,6 @@ function getServerDateItems($inDate)
     //   (use intval instead of ltrim, which translates '00' to '')
 }
 
-function clockDateString($inDate)
-{
-    return date('Y. F j l', $inDate);    // eg "Monday, January 1, 2002"
-}
-
 function clockTimeString($inDate, $showSeconds)
 {
     return date($showSeconds ? 'G:i:s' : 'g:i', $inDate).' ';
@@ -219,7 +221,7 @@ function clockTimeString($inDate, $showSeconds)
 /*** Clock -- end of server-side support code ***/
 ?>
 
-<script type="text/javascript">
+<script>
 <!--
 /* set up variables used to init clock in BODY's onLoad handler;
    should be done as early as possible */
@@ -234,7 +236,7 @@ function clockInit() {
 </script>
 
 
-<script type="text/javascript">
+<script>
 <!--
 /*** simpleFindObj, by Andrew Shearer
 
@@ -457,7 +459,7 @@ function clockUpdate()
 /*** End of Clock ***/
 //-->
   window.onload=clockInit(clockLocalStartTime, clockServerStartTime);clockOnLoad();
-  window.onunload=clockOnUnload()
+  window.onunload=clockOnUnload();
   clockUpdate();
 </script>
 
@@ -465,8 +467,8 @@ function clockUpdate()
 <table class="table table-striped table-condensed">
   <tbody>
     <tr>
-      <td width="40%" class="vncellt">Server Time</td>
-      <td width="60%" class="listr">
+      <td style="width:40%">Server Time</td>
+      <td style="width:60%">
         <div id="ClockTime">
           <b><?= clockTimeString($gDate, $gClockShowsSeconds) ?></b>
         </div>
@@ -481,26 +483,28 @@ function clockUpdate()
 </table>
 
 
-<script type="text/javascript">
-  function ntp_getstatus() {
-    scroll(0,0);
-    var url = "/widgets/widgets/ntp_status.widget.php";
-    var pars = 'updateme=yes';
-    jQuery.ajax(
-      url,
-      {
-        type: 'get',
-        data: pars,
-        complete: ntpstatuscallback
-      });
-    // Refresh the status every 1 minute
-    setTimeout('ntp_getstatus()', 1*60*1000);
-  }
-  function ntpstatuscallback(transport) {
-    // The server returns formatted html code
-    var responseStringNtp = transport.responseText
-    jQuery('#ntpstatus').prop('innerHTML',responseStringNtp);
-  }
-  // Do the first status check 1 second after the dashboard opens
-  setTimeout('ntp_getstatus()', 1000);
+<script>
+    $(window).on("load", function() {
+        function ntp_getstatus() {
+          scroll(0,0);
+          var url = "/widgets/widgets/ntp_status.widget.php";
+          var pars = 'updateme=yes';
+          jQuery.ajax(
+            url,
+            {
+              type: 'get',
+              data: pars,
+              complete: ntpstatuscallback
+            });
+          // Refresh the status every 1 minute
+          setTimeout(ntp_getstatus, 1*60*1000);
+        }
+        function ntpstatuscallback(transport) {
+          // The server returns formatted html code
+          var responseStringNtp = transport.responseText;
+          jQuery('#ntpstatus').prop('innerHTML',responseStringNtp);
+        }
+        // Do the first status check 1 second after the dashboard opens
+        setTimeout(ntp_getstatus, 1000);
+    });
 </script>

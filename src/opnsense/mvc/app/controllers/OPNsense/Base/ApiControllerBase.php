@@ -1,4 +1,5 @@
 <?php
+
 /**
  *    Copyright (C) 2015 Deciso B.V.
  *
@@ -26,6 +27,7 @@
  *    POSSIBILITY OF SUCH DAMAGE.
  *
  */
+
 namespace OPNsense\Base;
 
 use OPNsense\Core\ACL;
@@ -80,8 +82,10 @@ class ApiControllerBase extends ControllerRoot
      */
     public function APIErrorHandler($errno, $errstr, $errfile, $errline, $errcontext)
     {
-        $msg = "Error at $errfile:$errline - $errstr (errno=$errno)";
-        throw new \Exception($msg);
+        if ($errno & error_reporting()) {
+            $msg = "Error at $errfile:$errline - $errstr (errno=$errno)";
+            throw new \Exception($msg);
+        }
     }
 
     /**
@@ -91,6 +95,15 @@ class ApiControllerBase extends ControllerRoot
     {
         // disable view processing
         set_error_handler(array($this, 'APIErrorHandler'));
+    }
+
+    /**
+     * is external client (other then session authenticated)
+     * @return bool
+     */
+    protected function isExternalClient()
+    {
+        return !empty($this->request->getHeader('Authorization'));
     }
 
     /**
@@ -104,7 +117,7 @@ class ApiControllerBase extends ControllerRoot
     public function beforeExecuteRoute($dispatcher)
     {
         // handle authentication / authorization
-        if (!empty($this->request->getHeader('Authorization'))) {
+        if ($this->isExternalClient()) {
             // Authorization header send, handle API request
             $authHeader = explode(' ', $this->request->getHeader('Authorization'));
             if (count($authHeader) > 1) {
@@ -122,13 +135,13 @@ class ApiControllerBase extends ControllerRoot
                             // check ACL if user is returned by the Authenticator object
                             $acl = new ACL();
                             if (!$acl->isPageAccessible($authResult['username'], $_SERVER['REQUEST_URI'])) {
-                                $this->getLogger()->error("uri ".$_SERVER['REQUEST_URI'].
-                                    " not accessible for user ".$authResult['username'] . " using api key ".
+                                $this->getLogger()->error("uri " . $_SERVER['REQUEST_URI'] .
+                                    " not accessible for user " . $authResult['username'] . " using api key " .
                                     $apiKey);
                             } else {
                                 // authentication + authorization successful.
                                 // pre validate request and communicate back to the user on errors
-                                $callMethodName = $dispatcher->getActionName().'Action';
+                                $callMethodName = $dispatcher->getActionName() . 'Action';
                                 $dispatchError = null;
                                 // check number of parameters using reflection
                                 $object_info = new \ReflectionObject($this);
@@ -137,27 +150,33 @@ class ApiControllerBase extends ControllerRoot
                                     $req_c = $object_info->getMethod($callMethodName)->getNumberOfRequiredParameters();
                                     if ($req_c > count($dispatcher->getParams())) {
                                         $dispatchError = 'action ' . $dispatcher->getActionName() .
-                                            ' expects at least '. $req_c . ' parameter(s)';
-                                    } else {
-                                        // if body is send as json data, parse to $_POST first
-                                        $dispatchError = $this->parseJsonBodyData();
-                                    }
-                                    if ($dispatchError != null) {
-                                        // send error to client
-                                        $this->response->setStatusCode(400, "Bad Request");
-                                        $this->response->setContentType('application/json', 'UTF-8');
-                                        $this->response->setJsonContent(
-                                            array('message' => $dispatchError,
-                                                'status'  => 400)
-                                        );
-                                        $this->response->send();
-                                        return false;
+                                            ' expects at least ' . $req_c . ' parameter(s)';
                                     }
                                 }
+                                // if body is send as json data, parse to $_POST first
+                                $dispatchError = empty($dispatchError) ? $this->parseJsonBodyData() : $dispatchError;
+
+                                if ($dispatchError != null) {
+                                    // send error to client
+                                    $this->response->setStatusCode(400, "Bad Request");
+                                    $this->response->setContentType('application/json', 'UTF-8');
+                                    $this->response->setJsonContent(
+                                        array('message' => $dispatchError,
+                                            'status'  => 400)
+                                    );
+                                    $this->response->send();
+                                    return false;
+                                }
+
+                                // link username on successful login
+                                $this->logged_in_user = $authResult['username'];
 
                                 return true;
                             }
                         }
+                    } else {
+                        $this->getLogger()->error("uri " . $_SERVER['REQUEST_URI'] .
+                            " authentication failed for api key " . $apiKey);
                     }
                 }
             }
@@ -182,7 +201,8 @@ class ApiControllerBase extends ControllerRoot
             $csrf_token = $this->request->getHeader('X_CSRFTOKEN');
             $csrf_valid = $this->security->checkToken(null, $csrf_token, false);
 
-            if (($this->request->isPost() ||
+            if (
+                ($this->request->isPost() ||
                     $this->request->isPut() ||
                     $this->request->isDelete()
                 ) && !$csrf_valid
@@ -194,6 +214,9 @@ class ApiControllerBase extends ControllerRoot
             }
             // when request is using a json body (based on content type), parse it first
             $this->parseJsonBodyData();
+
+            // link username on successful login
+            $this->logged_in_user = $this->session->get("Username");
         }
     }
 
@@ -212,7 +235,11 @@ class ApiControllerBase extends ControllerRoot
             $data = $dispatcher->getReturnedValue();
             if (is_array($data)) {
                 $this->response->setContentType('application/json', 'UTF-8');
-                $this->response->setContent(htmlspecialchars(json_encode($data), ENT_NOQUOTES));
+                if ($this->isExternalClient()) {
+                    $this->response->setContent(json_encode($data));
+                } else {
+                    $this->response->setContent(htmlspecialchars(json_encode($data), ENT_NOQUOTES));
+                }
             }
         }
 

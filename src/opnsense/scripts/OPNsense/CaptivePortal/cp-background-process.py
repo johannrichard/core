@@ -1,7 +1,7 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python3
 
 """
-    Copyright (c) 2015 Deciso B.V. - Ad Schellevis
+    Copyright (c) 2015-2019 Ad Schellevis <ad@opnsense.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -33,11 +33,13 @@ import time
 import syslog
 import traceback
 import subprocess
+sys.path.insert(0, "/usr/local/opnsense/site-python")
 from lib import Config
 from lib.db import DB
 from lib.arp import ARP
 from lib.ipfw import IPFW
 from lib.daemonize import Daemonize
+from sqlite3_helper import check_and_repair
 
 
 class CPBackgroundProcess(object):
@@ -148,6 +150,7 @@ class CPBackgroundProcess(object):
 
                     # session accounting
                     if db_client['acc_session_timeout'] is not None \
+                            and type(db_client['acc_session_timeout']) in (int, float) \
                             and time.time() - float(db_client['startTime']) > db_client['acc_session_timeout']:
                             drop_session_reason = "accounting limit reached for session %s" % db_client['sessionId']
                 elif db_client['authenticated_via'] == '---mac---':
@@ -159,17 +162,12 @@ class CPBackgroundProcess(object):
                             self.ipfw.delete(zoneid, db_client['ipAddress'])
                         self.db.update_client_ip(zoneid, db_client['sessionId'], current_ip)
                         self.ipfw.add_to_table(zoneid, current_ip)
-                        self.ipfw.add_accounting(current_ip)
 
                 # check session, if it should be active, validate its properties
                 if drop_session_reason is None:
-                    # registered client, but not active according to ipfw (after reboot)
-                    if cpnet not in registered_addresses:
+                    # registered client, but not active or missing accounting according to ipfw (after reboot)
+                    if cpnet not in registered_addresses or cpnet not in registered_addr_accounting:
                         self.ipfw.add_to_table(zoneid, cpnet)
-
-                    # is accounting rule still available? need to reapply after reload / reboot
-                    if cpnet not in registered_addr_accounting:
-                        self.ipfw.add_accounting(cpnet)
                 else:
                     # remove session
                     syslog.syslog(syslog.LOG_NOTICE, drop_session_reason)
@@ -192,6 +190,9 @@ def main():
     """ Background process loop, runs as backend daemon for all zones. only one should be active at all times.
         The main job of this procedure is to sync the administration with the actual situation in the ipfw firewall.
     """
+    # perform integrity check and repair database if needed
+    check_and_repair('/var/captiveportal/captiveportal.sqlite')
+
     last_cleanup_timestamp = 0
     bgprocess = CPBackgroundProcess()
     bgprocess.initialize_fixed()
@@ -221,7 +222,10 @@ def main():
 
             # process accounting messages (uses php script, for reuse of Auth classes)
             try:
-                subprocess.call(['/usr/local/opnsense/scripts/OPNsense/CaptivePortal/process_accounting_messages.php'])
+                subprocess.run(
+                    ['/usr/local/opnsense/scripts/OPNsense/CaptivePortal/process_accounting_messages.php'],
+                    capture_output=True
+                )
             except OSError:
                 # if accounting script crashes don't exit backgroung process
                 pass

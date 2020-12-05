@@ -2,9 +2,9 @@
 
 /*
     Copyright (C) 2014 Deciso B.V.
-    Copyright (C) 2010-2014 Jim Pingle
-    Copyright (C) 2005-2009 Scott Ullrich
-    Copyright (C) 2005 Colin Smith
+    Copyright (C) 2010-2014 Jim Pingle <jimp@pfsense.org>
+    Copyright (C) 2005-2009 Scott Ullrich <sullrich@gmail.com>
+    Copyright (C) 2005 Colin Smith <ethethlay@gmail.com>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -62,7 +62,6 @@ function build_port_info($portarr, $proto) {
     $ports = array();
     asort($portarr);
     foreach (array_reverse($portarr, TRUE) as $port => $count) {
-        $str = "";
         $service = getservbyport($port, strtolower($proto));
         $port = "{$proto}/{$port}";
         if (!empty($service)) {
@@ -78,7 +77,7 @@ $dstipinfo = array();
 $allipinfo = array();
 $pairipinfo = array();
 
-$states = json_decode(configd_run("filter list states json"), true);
+$states = json_decode(configd_run("filter list states"), true);
 if(isset($states['details'])) {
   foreach($states['details'] as $state) {
     if (isset($state['nat_addr']) && $states['direction'] == 'out') {
@@ -134,9 +133,9 @@ function print_summary_table($label, $iparr, $sort = TRUE) {
         <tr>
           <td colspan="2">&nbsp;</td>
           <td><?=$proto; ?></td>
-          <td ><?=$protoinfo['seen']; ?></td>
-          <td ><span data-toggle="tooltip" title="<?=build_port_info($protoinfo['srcports'], $proto); ?>"><?=count($protoinfo['srcports']); ?></span></td>
-          <td ><span data-toggle="tooltip" title="<?=build_port_info($protoinfo['dstports'], $proto); ?>"><?=count($protoinfo['dstports']); ?></span></td>
+          <td><?=$protoinfo['seen']; ?></td>
+          <td><span data-toggle="tooltip" title="<?=build_port_info($protoinfo['srcports'], $proto); ?>"><?=count($protoinfo['srcports']); ?></span></td>
+          <td><span data-toggle="tooltip" title="<?=build_port_info($protoinfo['dstports'], $proto); ?>"><?=count($protoinfo['dstports']); ?></span></td>
         </tr>
         <?php } ?>
       <?php } ?>

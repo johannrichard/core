@@ -26,7 +26,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #}
 
-<script type="text/javascript">
+<script>
 
     $( document ).ready(function() {
         /*************************************************************************************************************
@@ -79,12 +79,13 @@ POSSIBILITY OF SUCH DAMAGE.
             });
             grid_templates.find(".command-delete").on("click", function(e) {
                 var uuid=$(this).data("row-id");
-                stdDialogRemoveItem('Remove selected item?',function() {
-                    ajaxCall(url="/api/captiveportal/service/delTemplate/" + uuid,
-                            sendData={},callback=function(data,status){
-                                // reload grid after delete
-                                $("#grid-templates").bootgrid("reload");
-                            });
+                stdDialogConfirm('{{ lang._('Confirm removal') }}',
+                    '{{ lang._('Do you want to remove the selected item?') }}',
+                    '{{ lang._('Yes') }}', '{{ lang._('Cancel') }}', function () {
+                    ajaxCall("/api/captiveportal/service/delTemplate/" + uuid, {},function(data,status){
+                        // reload grid after delete
+                        $("#grid-templates").bootgrid("reload");
+                    });
                 });
             });
             grid_templates.find(".command-download").on("click", function(e) {
@@ -118,22 +119,7 @@ POSSIBILITY OF SUCH DAMAGE.
         /**
          * Reconfigure
          */
-        $("#reconfigureAct").click(function(){
-            $("#reconfigureAct_progress").addClass("fa fa-spinner fa-pulse");
-            ajaxCall(url="/api/captiveportal/service/reconfigure", sendData={}, callback=function(data,status) {
-                // when done, disable progress animation.
-                $("#reconfigureAct_progress").removeClass("fa fa-spinner fa-pulse");
-
-                if (status != "success" || data['status'] != 'ok') {
-                    BootstrapDialog.show({
-                        type: BootstrapDialog.TYPE_WARNING,
-                        title: "{{ lang._('Error reconfiguring captiveportal') }}",
-                        message: data['status'],
-                        draggable: true
-                    });
-                }
-            });
-        });
+        $("#reconfigureAct").SimpleActionButton();
 
         /*************************************************************************************************************
          * File upload action, template dialog
@@ -155,7 +141,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 requestData['uuid'] = $("#templateUUID").val();
             }
             // save file content to server
-            ajaxCall(url="/api/captiveportal/service/saveTemplate", sendData=requestData, callback=function(data,status) {
+            ajaxCall("/api/captiveportal/service/saveTemplate", requestData, function(data,status) {
                 if (data['error'] == undefined) {
                     // saved, flush form data and hide modal
                     $("#grid-templates").bootgrid("reload");
@@ -180,17 +166,17 @@ POSSIBILITY OF SUCH DAMAGE.
     <li class="active"><a data-toggle="tab" href="#zones">{{ lang._('Zones') }}</a></li>
     <li><a data-toggle="tab" href="#template">{{ lang._('Templates') }}</a></li>
 </ul>
-<div class="tab-content content-box tab-content">
+<div class="tab-content content-box">
     <div id="zones" class="tab-pane fade in active">
         <!-- tab page "zones" -->
-        <table id="grid-zones" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogZone">
+        <table id="grid-zones" class="table table-condensed table-hover table-striped table-responsive" data-editAlert="changeMessage" data-editDialog="DialogZone">
             <thead>
             <tr>
                 <th data-column-id="enabled" data-width="6em" data-type="string" data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
-                <th data-column-id="zoneid" data-type="number"  data-visible="false">{{ lang._('Zoneid') }}</th>
+                <th data-column-id="zoneid" data-type="number" data-visible="false">{{ lang._('Zoneid') }}</th>
                 <th data-column-id="description" data-type="string">{{ lang._('Description') }}</th>
                 <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
-                <th data-column-id="uuid" data-type="string" data-identifier="true"  data-visible="false">{{ lang._('ID') }}</th>
+                <th data-column-id="uuid" data-type="string" data-identifier="true" data-visible="false">{{ lang._('ID') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -211,10 +197,10 @@ POSSIBILITY OF SUCH DAMAGE.
             <table id="grid-templates" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogTemplate">
                 <thead>
                 <tr>
-                    <th data-column-id="fileid" data-type="string"  data-visible="false">{{ lang._('Fileid') }}</th>
+                    <th data-column-id="fileid" data-type="string" data-visible="false">{{ lang._('Fileid') }}</th>
                     <th data-column-id="name" data-type="string">{{ lang._('Name') }}</th>
                     <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
-                    <th data-column-id="uuid" data-type="string" data-identifier="true"  data-visible="false">{{ lang._('ID') }}</th>
+                    <th data-column-id="uuid" data-type="string" data-identifier="true" data-visible="false">{{ lang._('ID') }}</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -232,18 +218,26 @@ POSSIBILITY OF SUCH DAMAGE.
         </div>
     </div>
     <div class="col-md-12">
+        <div id="changeMessage" class="alert alert-info" style="display: none" role="alert">
+            {{ lang._('After changing settings, please remember to apply them with the button below') }}
+        </div>
         <hr/>
-        <button class="btn btn-primary"  id="reconfigureAct" type="button"><b>{{ lang._('Apply') }}</b><i id="reconfigureAct_progress" class=""></i></button>
+        <button class="btn btn-primary" id="reconfigureAct"
+                data-endpoint='/api/captiveportal/service/reconfigure'
+                data-label="{{ lang._('Apply') }}"
+                data-error-title="{{ lang._('Error reconfiguring captiveportal') }}"
+                type="button"
+        ></button>
         <br/><br/>
     </div>
 </div>
 
-
 {# include dialogs #}
-{{ partial("layout_partials/base_dialog",['fields':formDialogZone,'id':'DialogZone','label':'Edit zone'])}}
+{{ partial("layout_partials/base_dialog",['fields':formDialogZone,'id':'DialogZone','label':lang._('Edit zone')])}}
 
 <!-- upload (new) template content dialog -->
 <div class="modal fade" id="DialogTemplate" tabindex="-1" role="dialog" aria-labelledby="formDialogTemplateLabel" aria-hidden="true">
+    <div class="modal-backdrop fade in"></div>
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">

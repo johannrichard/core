@@ -2,7 +2,7 @@
 
 /*
     Copyright (C) 2014 Deciso B.V.
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
+    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -31,10 +31,7 @@ require_once("guiconfig.inc");
 require_once("interfaces.inc");
 
 
-if (!isset($config['nat']['onetoone'])) {
-    $config['nat']['onetoone'] = array();
-}
-$a_1to1 = &$config['nat']['onetoone'];
+$a_1to1 = &config_read_array('nat', 'onetoone');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // input record id, if valid
@@ -50,9 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig['interface'] = "wan";
     $pconfig['src'] = 'lan';
     $pconfig['dst'] = 'any';
+    $pconfig['type'] = 'binat';
     if (isset($configId)) {
         // copy settings from config
-        foreach (array('disabled','interface','external','descr','natreflection') as $fieldname) {
+        foreach (array('disabled','interface','external','descr','natreflection', 'type') as $fieldname) {
           if (isset($a_1to1[$configId][$fieldname])) {
               $pconfig[$fieldname] = $a_1to1[$configId][$fieldname];
           } else {
@@ -103,11 +101,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 
     /* For external, user can enter only ip's */
-    if (!empty($pconfig['external']) && !is_ipaddr($_POST['external'])) {
-        $input_errors[] = gettext("A valid external subnet must be specified.");
+    $tmpext = explode('/', $pconfig['external']);
+    if (!empty($pconfig['external'])) {
+        if ($pconfig['type'] == 'binat' && (!is_ipaddr($tmpext[0]) || (count($tmpext) != 1 && $pconfig['srcmask'] != $tmpext[1]))) {
+            $input_errors[] = gettext("A valid external subnet must be specified.");
+        } elseif ($pconfig['type'] == 'nat' && !is_subnet($pconfig['external'])) {
+            $input_errors[] = gettext("A valid external subnet must be specified.");
+        }
     }
     /* For src, user can enter only ip's or networks */
-    if (!is_specialnet($pconfig['src']) && !is_ipaddroralias($pconfig['src'])) {
+    if ($pconfig['type'] == 'binat' && !is_subnet($pconfig['src']) && !is_ipaddr($pconfig['src'])) {
+        $input_errors[] = sprintf(gettext("%s is not a valid source IP address."), $pconfig['src']);
+    } elseif (!is_specialnet($pconfig['src']) && !is_ipaddroralias($pconfig['src'])) {
         $input_errors[] = sprintf(gettext("%s is not a valid source IP address or alias."), $pconfig['src']);
     }
     if (!empty($pconfig['srcmask']) && !is_numericint($pconfig['srcmask'])) {
@@ -127,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $natent['external'] = $pconfig['external'];
         $natent['descr'] = $pconfig['descr'];
         $natent['interface'] = $pconfig['interface'];
+        $natent['type'] = $pconfig['type'];
 
         // copy form data with some kind of logic in it
         $natent['disabled'] = isset($_POST['disabled']) ? true:false;
@@ -161,7 +167,7 @@ include("head.inc");
 ?>
 
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
 
     // select / input combination, link behaviour
@@ -205,6 +211,17 @@ include("head.inc");
         }
     });
 
+    // aliases and "special nets" are only allowed for nat type entries
+    $("#nattype").change(function(){
+        if ($(this).val() == 'binat') {
+            $("#src optgroup[data-type='nat']").children().prop('disabled', true);
+        } else {
+            $("#src optgroup[data-type='nat']").children().prop('disabled', false);
+        }
+        $("#src").selectpicker('refresh');
+    });
+    $("#nattype").change();
+
   });
   </script>
 
@@ -222,17 +239,17 @@ include("head.inc");
               <div class="table-responsive">
                 <table class="table table-striped opnsense_standard_table_form">
                   <tr>
-                    <td valign="top"><?=gettext("Edit NAT 1:1 entry"); ?></td>
-                    <td align="right">
+                    <td style="width:22%"><strong><?= gettext('Edit NAT 1:1 entry') ?></strong></td>
+                    <td style="width:78%;text-align:right">
                       <small><?=gettext("full help"); ?> </small>
-                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                      <i class="fa fa-toggle-off text-danger" style="cursor: pointer;" id="show_all_help_page"></i>
                     </td>
                   </tr>
                   <tr>
                     <td><a id="help_for_disabled" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Disabled"); ?></td>
                     <td>
                       <input name="disabled" type="checkbox" id="disabled" value="yes" <?= !empty($pconfig['disabled']) ? "checked=\"checked\"" : ""; ?> />
-                      <div class="hidden" for="help_for_disabled">
+                      <div class="hidden" data-for="help_for_disabled">
                         <strong><?=gettext("Disable this rule"); ?></strong><br />
                         <?=gettext("Set this option to disable this rule without removing it from the list."); ?>
                       </div>
@@ -251,48 +268,65 @@ include("head.inc");
                           <?php endforeach; ?>
                         </select>
                       </div>
-                      <div class="hidden" for="help_for_interface">
+                      <div class="hidden" data-for="help_for_interface">
                         <?=gettext("Choose which interface this rule applies to"); ?>.<br />
                         <?=gettext("Hint: in most cases, you'll want to use WAN here"); ?>
                       </div>
                     </td>
                   </tr>
                   <tr>
-                    <td><a id="help_for_external" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("External subnet IP"); ?></td>
+                    <td><a id="help_for_type" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Type"); ?></td>
                     <td>
-                      <input name="external" type="text" value="<?=$pconfig['external'];?>" />
-                      <br />
-                      <div class="hidden" for="help_for_external">
-                        <?=gettext("Enter the external (usually on a WAN) subnet's starting address for the 1:1 mapping.");?><br />
-                        <?=gettext("The subnet mask from the internal address below will be applied to this IP address."); ?><br />
-                        <?=gettext("Hint: this is generally an address owned by the router itself on the selected interface."); ?>
+                      <select name="type" class="selectpicker" data-width="auto" id="nattype">
+                          <option value="binat" <?=$pconfig['type'] == 'binat' || empty($pconfig['type']) ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("BINAT");?>
+                          </option>
+                          <option value="nat" <?=$pconfig['type'] == 'nat' ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("NAT");?>
+                          </option>
+                      </select>
+                      <div class="hidden" data-for="help_for_type">
+                        <?=gettext("Select BINAT (default) or NAT here, when nets are equally sized binat is usually the best option.".
+                                   "Using NAT we can also map unequal sized networks.");?><br />
+                        <?=gettext("A BINAT rule specifies a bidirectional mapping between an external and internal network and can be used from both ends, nat only applies in one direction.");?>
                       </div>
                     </td>
                   </tr>
                   <tr>
-                      <td><a id="help_for_src_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Internal IP") . " / ".gettext("Invert");?> </td>
+                    <td><a id="help_for_external" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("External network"); ?></td>
+                    <td>
+                      <input name="external" type="text" value="<?=$pconfig['external'];?>" />
+                      <div class="hidden" data-for="help_for_external">
+                        <?=gettext("Enter the external subnet's starting address for the 1:1 mapping or network.");?><br />
+                        <?=gettext("The subnet mask from the internal address below will be applied to this IP address, when none is provided."); ?><br />
+                        <?=gettext("This is the address or network the traffic will translate to/from.");?>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                      <td><a id="help_for_src_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Source") . " / ".gettext("Invert");?> </td>
                       <td>
                         <input name="srcnot" type="checkbox" id="srcnot" value="yes" <?= !empty($pconfig['srcnot']) ? "checked=\"checked\"" : "";?> />
-                        <div class="hidden" for="help_for_src_invert">
+                        <div class="hidden" data-for="help_for_src_invert">
                           <?=gettext("Use this option to invert the sense of the match."); ?>
                         </div>
                       </td>
                   </tr>
                   <tr>
-                      <td><a id="help_for_src" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Internal IP"); ?></td>
+                      <td><a id="help_for_src" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Source"); ?></td>
                       <td>
                         <table class="table table-condensed">
                           <tr>
                             <td>
-                              <select name="src" id="src" class="selectpicker" data-live-search="true" data-size="5" data-width="auto">
+                              <select name="src" id="src" class="selectpicker" data-live-search="true" data-size="5" data-width="auto" data-hide-disabled="true">
                                 <option data-other=true value="<?=$pconfig['src'];?>" <?=!is_specialnet($pconfig['src']) ? "selected=\"selected\"" : "";?>><?=gettext("Single host or Network"); ?></option>
-                                <optgroup label="<?=gettext("Aliases");?>">
+                                <optgroup label="<?=gettext("Aliases");?>" data-type="nat">
   <?php                        foreach (legacy_list_aliases("network") as $alias):
   ?>
                                   <option value="<?=$alias['name'];?>" <?=$alias['name'] == $pconfig['src'] ? "selected=\"selected\"" : "";?>><?=htmlspecialchars($alias['name']);?></option>
   <?php                          endforeach; ?>
                                 </optgroup>
-                                <optgroup label="<?=gettext("Networks");?>">
+                                <optgroup label="<?=gettext("Networks");?>" data-type="nat">
   <?php                          foreach (get_specialnets(true) as $ifent => $ifdesc):
   ?>
                                   <option value="<?=$ifent;?>" <?= $pconfig['src'] == $ifent ? "selected=\"selected\"" : ""; ?>><?=$ifdesc;?></option>
@@ -304,9 +338,9 @@ include("head.inc");
                         <tr>
                           <td>
                             <div class="input-group">
-                            <!-- updates to "other" option in  src -->
+                            <!-- updates to "other" option in src -->
                             <input type="text" for="src" value="<?=$pconfig['src'];?>" aria-label="<?=gettext("Source address");?>"/>
-                            <select name="srcmask" class="selectpicker" data-size="5" id="srcmask"  data-width="auto" for="src" >
+                            <select name="srcmask" class="selectpicker input-group-btn" data-size="5" id="srcmask"  data-width="auto" for="src" >
                             <?php for ($i = 32; $i > 0; $i--): ?>
                               <option value="<?=$i;?>" <?= $i == $pconfig['srcmask'] ? "selected=\"selected\"" : ""; ?>><?=$i;?></option>
                             <?php endfor; ?>
@@ -315,8 +349,8 @@ include("head.inc");
                           </td>
                         </tr>
                       </table>
-                      <div class="hidden" for="help_for_src">
-                        <?=gettext("Enter the internal (LAN) subnet for the 1:1 mapping. The subnet size specified for the internal subnet will be applied to the external subnet."); ?>
+                      <div class="hidden" data-for="help_for_src">
+                        <?=gettext("Enter the internal subnet for the 1:1 mapping. The subnet size specified for the source will be applied to the external subnet, when none is provided."); ?>
                       </div>
                     </td>
                   </tr>
@@ -324,7 +358,7 @@ include("head.inc");
                     <td> <a id="help_for_dst_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Destination") . " / ".gettext("Invert");?> </td>
                     <td>
                       <input name="dstnot" type="checkbox" id="srcnot" value="yes" <?= !empty($pconfig['dstnot']) ? "checked=\"checked\"" : "";?> />
-                      <div class="hidden" for="help_for_dst_invert">
+                      <div class="hidden" data-for="help_for_dst_invert">
                         <?=gettext("Use this option to invert the sense of the match."); ?>
                       </div>
                     </td>
@@ -355,9 +389,9 @@ include("head.inc");
                         <tr>
                           <td>
                             <div class="input-group">
-                            <!-- updates to "other" option in  src -->
+                            <!-- updates to "other" option in dst -->
                             <input type="text" for="dst" value="<?= !is_specialnet($pconfig['dst']) ? $pconfig['dst'] : "";?>" aria-label="<?=gettext("Destination address");?>"/>
-                            <select name="dstmask" class="selectpicker" data-size="5" id="dstmask"  data-width="auto" for="dst" >
+                            <select name="dstmask" class="selectpicker input-group-btn" data-size="5" id="dstmask"  data-width="auto" for="dst" >
                             <?php for ($i = 32; $i > 0; $i--): ?>
                               <option value="<?=$i;?>" <?= $i == $pconfig['dstmask'] ? "selected=\"selected\"" : ""; ?>><?=$i;?></option>
                             <?php endfor; ?>
@@ -366,7 +400,7 @@ include("head.inc");
                           </td>
                         </tr>
                       </table>
-                      <div class="hidden" for="help_for_dst">
+                      <div class="hidden" data-for="help_for_dst">
                         <?=gettext("The 1:1 mapping will only be used for connections to or from the specified destination."); ?><br />
                         <?=gettext("Hint: this is usually 'any'."); ?>
                       </div>
@@ -376,7 +410,7 @@ include("head.inc");
                     <td><a id="help_for_descr" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description"); ?></td>
                     <td>
                       <input name="descr" type="text" class="formfld unknown" id="descr" size="40" value="<?=$pconfig['descr'];?>" />
-                      <div class="hidden" for="help_for_descr">
+                      <div class="hidden" data-for="help_for_descr">
                         <?=gettext("You may enter a description here " ."for your reference (not parsed)."); ?>
                       </div>
                   </tr>
@@ -393,8 +427,8 @@ include("head.inc");
                   <tr>
                     <td>&nbsp;</td>
                     <td>
-                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
-                      <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/firewall_nat_1to1.php'" />
+                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
+                      <input type="button" class="btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/firewall_nat_1to1.php'" />
                       <?php if (isset($id)): ?>
                       <input name="id" type="hidden" value="<?=$id;?>" />
                       <?php endif; ?>

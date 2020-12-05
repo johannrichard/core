@@ -3,8 +3,9 @@
 /*
     Copyright (C) 2014-2016 Deciso B.V.
     Copyright (C) 2007 Scott Dale
-    Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>, Manuel Kasper <mk@neon1.net>
-    and Jonathan Watt <jwatt@jwatt.org>.
+    Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>
+    Copyright (C) 2004-2005 Manuel Kasper <mk@neon1.net>
+    Copyright (C) 2004-2005 Jonathan Watt <jwatt@jwatt.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -31,7 +32,7 @@
 
 ?>
 
-<script type="text/javascript">
+<script>
   var traffic_graph_widget_data = [];
   var traffic_graph_widget_chart_in = null;
   var traffic_graph_widget_chart_data_in = null;
@@ -51,9 +52,9 @@
           traffic_graph_widget_data.push(data);
       }
 
-      chart_data_in = [];
-      chart_data_out = [];
-      chart_data_keys = {};
+      let chart_data_in = [];
+      let chart_data_out = [];
+      let chart_data_keys = {};
       for (var i=traffic_graph_widget_data.length-1 ; i > 0 ; --i) {
           var elapsed_time = traffic_graph_widget_data[i]['time'] - traffic_graph_widget_data[i-1]['time'];
           for (var key in traffic_graph_widget_data[i]['interfaces']) {
@@ -66,6 +67,7 @@
                   chart_data_out[chart_data_out.length] = {'key': intf_item['name'], 'values': []};
               }
               if (chart_data_keys[key] != undefined) {
+                  let bps_in, bps_out;
                   if (elapsed_time > 0) {
                       bps_in = ((parseInt(intf_item['bytes received']) - parseInt(prev_intf_item['bytes received']))/elapsed_time)*8;
                       bps_out = ((parseInt(intf_item['bytes transmitted']) - parseInt(prev_intf_item['bytes transmitted']))/elapsed_time)*8;
@@ -73,8 +75,8 @@
                       bps_in = 0;
                       bps_out = 0;
                   }
-                  chart_data_in[chart_data_keys[key]]['values'].push([traffic_graph_widget_data[i]['time']*1000, bps_in])
-                  chart_data_out[chart_data_keys[key]]['values'].push([traffic_graph_widget_data[i]['time']*1000, bps_out])
+                  chart_data_in[chart_data_keys[key]]['values'].push([traffic_graph_widget_data[i]['time']*1000, bps_in]);
+                  chart_data_out[chart_data_keys[key]]['values'].push([traffic_graph_widget_data[i]['time']*1000, bps_out]);
               }
           }
       }
@@ -94,7 +96,9 @@
 
       // load data
       traffic_graph_widget_chart_data_in.datum(chart_data_in).transition().duration(500).call(traffic_graph_widget_chart_in);
-      traffic_graph_widget_chart_data_out.datum(chart_data_out).transition().duration(500).call(traffic_graph_widget_chart_out);
+      if (traffic_graph_widget_chart_data_out !== null) {
+          traffic_graph_widget_chart_data_out.datum(chart_data_out).transition().duration(500).call(traffic_graph_widget_chart_out);
+      }
 
       // set selection
       d3.selectAll("#traffic_graph_widget_chart_in").selectAll(".nv-series").each(function(d, i) {
@@ -111,7 +115,7 @@
   /**
    * page setup
    */
-  $( document ).ready(function() {
+  $(window).on("load", function() {
       // draw traffic in graph
       nv.addGraph(function() {
           traffic_graph_widget_chart_in = nv.models.lineChart()

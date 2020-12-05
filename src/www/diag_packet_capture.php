@@ -1,30 +1,30 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2007 Scott Dale
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-    this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2007 Scott Dale
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("interfaces.inc");
@@ -34,7 +34,7 @@ require_once("interfaces.inc");
  */
 function stop_capture()
 {
-    $processes_running = trim(shell_exec("/bin/ps axw -O pid= | /usr/bin/grep tcpdump | /usr/bin/grep packetcapture.cap | /usr/bin/egrep -v '(pflog|grep)'"));
+    $processes_running = trim(shell_exec("/bin/ps axw -O pid= | /usr/bin/grep tcpdump | /usr/bin/grep packetcapture_ | /usr/bin/egrep -v '(pflog|grep)'"));
     foreach (explode("\n", $processes_running) as $process) {
         exec("kill ". explode(' ',$process)[0]);
     }
@@ -48,8 +48,6 @@ function start_capture($options)
 {
       $cmd_opts = array();
       $filter_opts = array();
-      $intf = get_real_interface($options['interface']);
-      $cmd_opts[] = '-i ' . $intf;
 
       if (empty($options['promiscuous'])) {
           // disable promiscuous mode
@@ -104,14 +102,20 @@ function start_capture($options)
           $filter_opts[] = "port " . str_replace("!", "not ", $options['port']);
       }
 
-      if (!empty($intf)) {
-          $cmd = '/usr/sbin/tcpdump ';
-          $cmd .= implode(' ', $cmd_opts);
-          $cmd .= ' -w /tmp/packetcapture.cap ';
-          $cmd .= " ".escapeshellarg(implode(' and ', $filter_opts));
-          //delete previous packet capture if it exists
-          @unlink('/tmp/packetcapture.cap');
-          mwexec_bg($cmd);
+      foreach (glob("/tmp/packetcapture_*.cap") as $filename) {
+          @unlink($filename);
+      }
+      foreach ($options['interface'] as $key) {
+          $intf = get_real_interface($key);
+          if (!empty($intf)) {
+              $cmd = '/usr/sbin/tcpdump ';
+              $cmd .= "-i " . escapeshellarg($intf) . " ";
+              $cmd .= implode(' ', $cmd_opts);
+              $cmd .= " -w /tmp/packetcapture_{$intf}.cap ";
+              $cmd .= " ".escapeshellarg(implode(' and ', $filter_opts));
+              //delete previous packet capture if it exists
+              mwexec_bg($cmd);
+          }
       }
 }
 
@@ -121,7 +125,7 @@ function start_capture($options)
  */
 function capture_running()
 {
-    $processcheck = (trim(shell_exec("/bin/ps axw -O pid= | /usr/bin/grep tcpdump | /usr/bin/grep  packetcapture.cap | /usr/bin/egrep -v '(pflog|grep)'")));
+    $processcheck = (trim(shell_exec("/bin/ps axw -O pid= | /usr/bin/grep tcpdump | /usr/bin/grep  packetcapture_ | /usr/bin/egrep -v '(pflog|grep)'")));
     if (!empty($processcheck)) {
         return true;
     } else {
@@ -150,50 +154,63 @@ foreach (array('server', 'client') as $mode) {
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (isset($_GET['download'])) {
         // download capture file
-        header("Content-Type: application/octet-stream");
-        header("Content-Disposition: attachment; filename=packetcapture.cap");
-        header("Content-Length: ".filesize("/tmp/packetcapture.cap"));
-        $file = fopen("/tmp/packetcapture.cap", "r");
-        while(!feof($file)) {
-            print(fread($file, 32 * 1024));
-            ob_flush();
+        foreach (glob("/tmp/packetcapture_*.cap") as $filename) {
+            $bfilename = basename($filename);
+            if ($_GET['download'] === $bfilename) {
+                header("Content-Type: application/octet-stream");
+                header("Content-Disposition: attachment; filename={$bfilename}");
+                header("Content-Length: ".filesize($filename));
+                header('Content-Transfer-Encoding: binary');
+                $file = fopen($filename, 'rb');
+                while(!feof($file)) {
+                    print(fread($file, 32 * 1024));
+                    ob_flush();
+                }
+                fclose($file);
+                break;
+            }
         }
-        fclose($file);
         exit;
     } elseif (!empty($_GET['view'])) {
-        // download capture contents
-        if (!empty($_GET['dnsquery'])) {
-            //if dns lookup is checked
-            $disabledns = "";
-        } else {
-            //if dns lookup is unchecked
-            $disabledns = "-n";
-        }
-        $detail_args = "";
-        switch (!empty($_GET['detail']) ? $_GET['detail'] : null) {
-            case "full":
-                $detail_args = "-vv -e";
-                break;
-            case "high":
-                $detail_args = "-vv";
-                break;
-            case "medium":
-                $detail_args = "-v";
-                break;
-            case "normal":
-            default:
-                $detail_args = "-q";
-                break;
-        }
-        $result = array();
-        $dump_output = array();
-        exec("/usr/sbin/tcpdump {$disabledns} {$detail_args} -r /tmp/packetcapture.cap |  /usr/bin/tail -n 5000", $dump_output);
-        // reformat raw output to 1 packet per array item
-        foreach ($dump_output as $line) {
-            if ($line[0] == ' ' && count($result) > 0) {
-                $result[count($result)-1] .= "\n" . $line;
+        $result = [];
+        foreach (glob("/tmp/packetcapture_*.cap") as $filename) {
+            $intf = explode(".", substr(basename($filename), 14))[0];
+            $intf_key = convert_real_interface_to_friendly_interface_name($intf);
+            $intf_name = !empty($interfaces[$intf_key]) ? $interfaces[$intf_key] : $intf_key;
+            $result[$intf] = ['name' => $intf_name, 'content' => []];
+            // download capture contents
+            if (!empty($_GET['dnsquery'])) {
+                //if dns lookup is checked
+                $disabledns = "";
             } else {
-                $result[] = $line;
+                //if dns lookup is unchecked
+                $disabledns = "-n";
+            }
+            $detail_args = "";
+            switch (!empty($_GET['detail']) ? $_GET['detail'] : null) {
+                case "full":
+                    $detail_args = "-vv -e";
+                    break;
+                case "high":
+                    $detail_args = "-vv";
+                    break;
+                case "medium":
+                    $detail_args = "-v";
+                    break;
+                case "normal":
+                default:
+                    $detail_args = "-q";
+                    break;
+            }
+            $dump_output = array();
+            exec("/usr/sbin/tcpdump {$disabledns} {$detail_args} -r {$filename} |  /usr/bin/tail -n 5000", $dump_output);
+            // reformat raw output to 1 packet per array item
+            foreach ($dump_output as $line) {
+                if ($line[0] == ' ' && count($result) > 0) {
+                    $result[$intf]['content'][count($result)-1] .= "\n" . $line;
+                } else {
+                    $result[$intf]['content'][] = $line;
+                }
             }
         }
         echo json_encode($result);
@@ -201,7 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     } else {
         // set form defaults
         $pconfig = array();
-        $pconfig['interface'] = "WAN";
+        $pconfig['interface'] = ["wan"];
         $pconfig['promiscuous'] = null;
         $pconfig['fam'] = null;
         $pconfig['proto'] = null;
@@ -215,8 +232,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig = $_POST;
 
     if (!empty($_POST['start'])) {
-        if (!array_key_exists($pconfig['interface'], $interfaces)) {
-            $input_errors[] = gettext("Invalid interface.");
+        if (empty($pconfig['interface'])) {
+            $input_errors[] = gettext("No interface selected");
+        } else {
+            foreach ($pconfig['interface'] as $key) {
+                if (!array_key_exists($key, $interfaces)) {
+                    $input_errors[] = sprintf(gettext("Invalid interface %s."), $key);
+                }
+            }
         }
         if ($pconfig['fam'] !== "" && $pconfig['fam'] !== "ip" && $pconfig['fam'] !== "ip6") {
             $input_errors[] = gettext("Invalid address family.");
@@ -249,7 +272,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     } elseif (!empty($pconfig['stop'])) {
         stop_capture();
     } elseif (!empty($pconfig['remove'])) {
-        @unlink('/tmp/packetcapture.cap');
+        foreach (glob("/tmp/packetcapture_*.cap") as $filename) {
+            @unlink($filename);
+        }
         header(url_safe('Location: /diag_packet_capture.php'));
         exit;
     }
@@ -259,7 +284,7 @@ legacy_html_escape_form_data($pconfig);
 include("head.inc");
 ?>
 <body>
-  <script type="text/javascript">
+  <script>
     $( document ).ready(function() {
         $("#view").click(function(){
           $.ajax("diag_packet_capture.php",{
@@ -269,10 +294,22 @@ include("head.inc");
               data: {view: 'view', 'dnsquery': $("#dnsquery:checked").val() ,'detail': $("#detail").val()},
               success: function(response) {
                 var html = [];
-                $.each(response, function(idx, line){
-                    html.push('<tr><td>'+line+'</td></tr>');
+                $.each(response, function(intf, data){
+                  $.each(data['content'], function(idx, line){
+                      html.push(
+                        $("<tr>").append(
+                          $("<td>").append(
+                            $("<span>").text(data['name']),
+                            $("<br>"),
+                            $("<small>").text(intf),
+                          )
+                        ).append(
+                           $("<td>").text(line)
+                        )
+                      );
+                  });
                 });
-                $("#capture_output").html(html.join(''));
+                $("#capture_output").empty().append(html);
                 $("#capture").removeClass('hidden');
                 // scroll to capture output
                 $('html, body').animate({
@@ -299,10 +336,10 @@ include("fbegin.inc");
               <table class="table table-striped opnsense_standard_table_form">
                 <thead>
                   <tr>
-                    <td width="22%"><strong><?=gettext("Packet capture");?></strong></td>
-                    <td width="78%" align="right">
+                    <td style="width:22%"><strong><?=gettext("Packet capture");?></strong></td>
+                    <td style="width:78%; text-align:right">
                       <small><?=gettext("full help"); ?> </small>
-                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                       &nbsp;
                     </td>
                   </tr>
@@ -311,16 +348,16 @@ include("fbegin.inc");
                   <tr>
                     <td><a id="help_for_if" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Interface");?></td>
                     <td>
-                      <select name="interface" class="form-control">
+                      <select name="interface[]" class="selectpicker" multiple="multiple">
 <?php
                       foreach ($interfaces as $iface => $ifacename): ?>
-                        <option value="<?=$iface;?>" <?=$pconfig['interface'] == $iface ? "selected=\"selected\"" : ""; ?>>
+                        <option value="<?=$iface;?>" <?=in_array($iface, $pconfig['interface']) ? "selected=\"selected\"" : ""; ?>>
                           <?=$ifacename;?>
                         </option>
 <?php
                       endforeach; ?>
                       </select>
-                      <div class="hidden" for="help_for_if">
+                      <div class="hidden" data-for="help_for_if">
                         <?=gettext("Select the interface on which to capture traffic.");?>
                       </div>
                     </td>
@@ -329,7 +366,7 @@ include("fbegin.inc");
                     <td><a id="help_for_promiscuous" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Promiscuous");?></td>
                     <td>
                       <input name="promiscuous" type="checkbox" <?= !empty($pconfig['promiscuous']) ? " checked=\"checked\"" : ""; ?> />
-                      <div class="hidden" for="help_for_promiscuous">
+                      <div class="hidden" data-for="help_for_promiscuous">
                         <?=gettext("If checked, the");?> <a target="_blank" href="http://www.freebsd.org/cgi/man.cgi?query=tcpdump&amp;apropos=0&amp;sektion=0&amp;manpath=FreeBSD+8.3-stable&amp;arch=default&amp;format=html"><?= gettext("packet capture")?></a> <?= gettext("will be performed using promiscuous mode.");?>
                         <br /><b><?=gettext("Note");?>: </b><?=gettext("Some network adapters do not support or work well in promiscuous mode.");?>
                       </div>
@@ -338,7 +375,7 @@ include("fbegin.inc");
                   <tr>
                     <td><a id="help_for_fam" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Address Family");?></td>
                     <td>
-                      <select name="fam" class="form-control">
+                      <select name="fam" class="selectpicker">
                         <option value=""><?=gettext('Any') ?></option>
                         <option value="ip" <?=!empty($pconfig['fam'] == "ip") ? "selected=\"selected\"" : ""; ?>>
                           <?= gettext('IPv4 Only') ?>
@@ -347,7 +384,7 @@ include("fbegin.inc");
                           <?= gettext('IPv6 Only') ?>
                         </option>
                       </select>
-                      <div class="hidden" for="help_for_fam">
+                      <div class="hidden" data-for="help_for_fam">
                         <?=gettext("Select the type of traffic to be captured, either Any, IPv4 only or IPv6 only.");?>
                       </div>
                     </td>
@@ -355,7 +392,7 @@ include("fbegin.inc");
                   <tr>
                     <td><a id="help_for_proto" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Protocol");?></td>
                     <td>
-                      <select name="proto" class="form-control">
+                      <select name="proto" class="selectpicker">
                         <option value=""><?=gettext('Any') ?></option>
                         <option value="icmp" <?=$pconfig['proto'] == "icmp" ? "selected=\"selected\"" : ""; ?>><?= gettext('ICMP') ?></option>
                         <option value="!icmp" <?=$pconfig['proto'] == "!icmp" ? "selected=\"selected\"" : ""; ?>><?= gettext('Exclude ICMP') ?></option>
@@ -371,7 +408,7 @@ include("fbegin.inc");
                         <option value="!carp" <?=$pconfig['proto'] == "!carp" ? "selected=\"selected\"" : ""; ?>><?= gettext('Exclude CARP (VRRP)') ?></option>
                         <option value="esp" <?=$pconfig['proto'] == "esp" ? "selected=\"selected\"" : ""; ?>><?= gettext('ESP') ?></option>
                       </select>
-                      <div class="hidden" for="help_for_proto">
+                      <div class="hidden" data-for="help_for_proto">
                           <?=gettext("Select the protocol to capture, or Any.");?>
                       </div>
                     </td>
@@ -380,9 +417,9 @@ include("fbegin.inc");
                     <td><a id="help_for_host" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Host Address");?></td>
                     <td>
                       <input type="text"  name="host" value="<?=$pconfig['host'];?>" />
-                      <div class="hidden" for="help_for_host">
+                      <div class="hidden" data-for="help_for_host">
                         <?=gettext("This value is either the Source or Destination IP address or subnet in CIDR notation. The packet capture will look for this address in either field.");?>
-                        <?=gettext("Matching can be negated by preceding the value with \"not\". Multiple IP addresses or CIDR subnets may be specified as boolean expresion.");?>
+                        <?=gettext("Matching can be negated by preceding the value with \"not\". Multiple IP addresses or CIDR subnets may be specified as boolean expression.");?>
                         <?=gettext("If you leave this field blank, all packets on the specified interface will be captured.");?>
                         <br/><br/><?=gettext("Example:");?> not 10.0.0.0/24 not and not 11.0.0.1
                       </div>
@@ -392,7 +429,7 @@ include("fbegin.inc");
                     <td><a id="help_for_port" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Port");?></td>
                     <td>
                       <input type="text" name="port" value="<?=$pconfig['port'];?>" />
-                      <div class="hidden" for="help_for_port">
+                      <div class="hidden" data-for="help_for_port">
                         <?=gettext("The port can be either the source or destination port. The packet capture will look for this port in either field.");?> <?=gettext("Leave blank if you do not want to filter by port.");?>
                       </div>
                   </td>
@@ -401,7 +438,7 @@ include("fbegin.inc");
                     <td><a id="help_for_snaplen" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Packet Length");?></td>
                     <td>
                       <input type="text" name="snaplen" value="<?=$pconfig['snaplen'];?>" />
-                      <div class="hidden" for="help_for_snaplen">
+                      <div class="hidden" data-for="help_for_snaplen">
                         <?=gettext("The Packet length is the number of bytes of each packet that will be captured. Default value is 0, which will capture the entire frame regardless of its size.");?>
                       </div>
                     </td>
@@ -410,7 +447,7 @@ include("fbegin.inc");
                     <td><a id="help_for_count" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Count");?></td>
                     <td>
                       <input type="text" name="count" class="formfld unknown" id="count" size="5" value="<?=$pconfig['count'];?>" />
-                      <div class="hidden" for="help_for_count">
+                      <div class="hidden" data-for="help_for_count">
                         <?=gettext("This is the number of packets the packet capture will grab. Default value is 100.") . "<br />" . gettext("Enter 0 (zero) for no count limit.");?>
                       </div>
                     </td>
@@ -422,12 +459,12 @@ include("fbegin.inc");
                     <td><a id="help_for_detail" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Level of Detail");?></td>
                     <td>
                       <select name="detail" class="selectpicker" id="detail">
-                        <option value="normal"><?=gettext("Normal");?></option>
-                        <option value="medium"><?=gettext("Medium");?></option>
-                        <option value="high"><?=gettext("High");?></option>
-                        <option value="full"><?=gettext("Full");?></option>
+                        <option value="normal" <?=$pconfig['detail'] == 'normal' ?  "selected=\"selected\"" : "";?> ><?=gettext("Normal");?></option>
+                        <option value="medium" <?=$pconfig['detail'] == 'medium' ?  "selected=\"selected\"" : "";?> ><?=gettext("Medium");?></option>
+                        <option value="high" <?=$pconfig['detail'] == 'high' ?  "selected=\"selected\"" : "";?> ><?=gettext("High");?></option>
+                        <option value="full" <?=$pconfig['detail'] == 'full' ?  "selected=\"selected\"" : "";?> ><?=gettext("Full");?></option>
                       </select>
-                      <div class="hidden" for="help_for_detail">
+                      <div class="hidden" data-for="help_for_detail">
                         <?=gettext("This is the level of detail that will be displayed after hitting 'Stop' when the packets have been captured.") .  "<br /><b>" .
                            gettext("Note:") . "</b> " .
                            gettext("This option does not affect the level of detail when downloading the packet capture.");?>
@@ -439,7 +476,7 @@ include("fbegin.inc");
                     <td><a id="help_for_dnsquery" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Reverse DNS Lookup");?></td>
                     <td>
                       <input name="dnsquery" id="dnsquery" type="checkbox"/>
-                      <div class="hidden" for="help_for_dnsquery">
+                      <div class="hidden" data-for="help_for_dnsquery">
                        <?=gettext("This check box will cause the packet capture to perform a reverse DNS lookup associated with all IP addresses.");?>
                        <br /><b><?=gettext("Note");?>: </b><?=gettext("This option can cause delays for large packet captures.");?>
                      </div>
@@ -451,15 +488,34 @@ include("fbegin.inc");
                     <td>
 <?php
                     if (capture_running()):?>
-                      <input type="submit" class="btn" name="stop" value="<?=gettext("Stop");?>"/>
+                      <input type="submit" class="btn" name="stop" value="<?= html_safe(gettext('Stop')) ?>"/>
 <?php
                     else:?>
-                      <input type="submit" class="btn" name="start" value="<?=gettext("Start");?>"/>
+                      <input type="submit" class="btn" name="start" value="<?= html_safe(gettext('Start')) ?>"/>
 <?php
-                    if (file_exists('/tmp/packetcapture.cap')):?>
+                    if (count(glob('/tmp/packetcapture_*.cap')) > 0):?>
                       <button type="button" id="view" class="btn"> <?=gettext("View Capture");?> </button>
-                      <a href="?download" type="submit" class="btn"><?=gettext("Download Capture");?></a>
-                      <input type="submit" class="btn" name="remove" value="<?=gettext("Delete Capture");?>"/>
+                      <input type="submit" class="btn" name="remove" value="<?= html_safe(gettext('Delete Capture')) ?>"/>
+                    <table class="table table-condensed">
+                      <thead>
+                          <tr>
+                              <th><?=gettext("Download Capture");?></th>
+                          </tr>
+                      </thead>
+                      <tbody>
+<?php
+                    foreach (glob("/tmp/packetcapture_*.cap") as $filename):?>
+                      <tr>
+                        <td><a href="?download=<?=basename($filename);?>">
+                          <i class="fa fa-file"></i>
+                          <?=basename($filename);?>
+                        </a>
+                        </td>
+                      </tr>
+<?php
+                    endforeach;?>
+                      </tbody>
+                    </table>
 <?php
                     endif;
                     endif;?>
@@ -477,6 +533,7 @@ include("fbegin.inc");
             <table class="table table-condensed">
               <thead>
                   <tr>
+                    <th><?=gettext("Interface");?></th>
                     <th><?=gettext("Capture output");?></th>
                   </tr>
               </thead>

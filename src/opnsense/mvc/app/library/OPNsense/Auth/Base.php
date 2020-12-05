@@ -1,4 +1,5 @@
 <?php
+
 /**
  *    Copyright (C) 2017 Deciso B.V.
  *
@@ -38,6 +39,11 @@ use OPNsense\Core\Config;
 abstract class Base
 {
     /**
+     * @var bool match usernames case insensitive
+     */
+    protected $caseInSensitiveUsernames = false;
+
+    /**
      * return group memberships
      * @param string $username username to find
      * @return array
@@ -66,6 +72,29 @@ abstract class Base
     }
 
     /**
+     * check if password meets policy constraints, needs implementation if it applies.
+     * @param string $username username to check
+     * @param string $old_password current password
+     * @param string $new_password password to check
+     * @return array of unmet policy constraints
+     */
+    public function checkPolicy($username, $old_password, $new_password)
+    {
+        return array();
+    }
+
+    /**
+     * check if the user should change his or her password, needs implementation if it applies.
+     * @param string $username username to check
+     * @param string $password password to check
+     * @return boolean
+     */
+    public function shouldChangePassword($username, $password = null)
+    {
+        return false;
+    }
+
+    /**
      * user allowed in local group
      * @param string $username username to check
      * @param string $gid group id
@@ -87,10 +116,16 @@ abstract class Base
         $configObj = Config::getInstance()->object();
         $userObject = null;
         foreach ($configObj->system->children() as $key => $value) {
-            if ($key == 'user' && !empty($value->name) && (string)$value->name == $username) {
-                // user found, stop search
-                $userObject = $value;
-                break;
+            if ($key == 'user' && !empty($value->name)) {
+                // depending on caseInSensitiveUsernames setting match exact or case-insensitive
+                if (
+                    (string)$value->name == $username ||
+                    ($this->caseInSensitiveUsernames && strtolower((string)$value->name) == strtolower($username))
+                ) {
+                    // user found, stop search
+                    $userObject = $value;
+                    break;
+                }
             }
         }
         return $userObject;

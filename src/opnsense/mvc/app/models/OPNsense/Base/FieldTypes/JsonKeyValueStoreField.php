@@ -1,69 +1,41 @@
 <?php
 
-/**
- *    Copyright (C) 2015 Deciso B.V.
+/*
+ * Copyright (C) 2015-2019 Deciso B.V.
+ * All rights reserved.
  *
- *    All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
- *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace OPNsense\Base\FieldTypes;
 
-use Phalcon\Validation\Validator\InclusionIn;
-use OPNsense\Base\Validators\CsvListValidator;
 use OPNsense\Core\Backend;
 
 /**
  * Class JsonKeyValueStoreField, use a json encoded file as selection list
  * @package OPNsense\Base\FieldTypes
  */
-class JsonKeyValueStoreField extends BaseField
+class JsonKeyValueStoreField extends BaseListField
 {
-    /**
-     * @var bool marks if this is a data node or a container
-     */
-    protected $internalIsContainer = false;
-
-    /**
-     * @var string default validation message string
-     */
-    protected $internalValidationMessage = "option not in list";
-
-    /**
-     * @var bool field may contain multiple servers at once
-     */
-    private $internalMultiSelect = false;
-
-    /**
-     * @var string default description for empty item
-     */
-    private $internalEmptyDescription = "none";
-
-    /**
-     * @var array valid options for this list
-     */
-    private $internalOptionList = array();
-
     /**
      * @var null source field
      */
@@ -90,13 +62,9 @@ class JsonKeyValueStoreField extends BaseField
     private $internalConfigdPopulateTTL = 3600;
 
     /**
-     * set descriptive text for empty value
-     * @param string $value description
+     * @var bool sort by value (default is by key)
      */
-    public function setBlankDesc($value)
-    {
-        $this->internalEmptyDescription = $value;
-    }
+     private $internalSortByValue = false;
 
     /**
      * @param string $value source field, pattern for source file
@@ -161,13 +129,17 @@ class JsonKeyValueStoreField extends BaseField
                     $muttime = 0;
                 } else {
                     $stat = stat($sourcefile);
-                    $muttime = $stat['mtime'];
+                    // ignore empty files
+                    $muttime = $stat['size'] == 0 ? 0 : $stat['mtime'];
                 }
                 if (time() - $muttime > $this->internalConfigdPopulateTTL) {
                     $act = $this->internalConfigdPopulateAct;
                     $backend = new Backend();
                     $response = $backend->configdRun($act, false, 20);
-                    file_put_contents($sourcefile, $response);
+                    if (!empty($response) && json_decode($response) !== null) {
+                        // only store parsable results
+                        file_put_contents($sourcefile, $response);
+                    }
                 }
             }
             if (is_file($sourcefile)) {
@@ -183,15 +155,15 @@ class JsonKeyValueStoreField extends BaseField
     }
 
     /**
-     * select if multiple authentication servers may be selected at once
+     * change default sorting order (value vs key)
      * @param $value boolean value Y/N
      */
-    public function setMultiple($value)
+    public function setSortByValue($value)
     {
         if (trim(strtoupper($value)) == "Y") {
-            $this->internalMultiSelect = true;
+            $this->internalSortByValue = true;
         } else {
-            $this->internalMultiSelect = false;
+            $this->internalSortByValue = false;
         }
     }
 
@@ -201,45 +173,13 @@ class JsonKeyValueStoreField extends BaseField
      */
     public function getNodeData()
     {
-        $result = array ();
-        // if relation is not required and single, add empty option
-        if (!$this->internalIsRequired && !$this->internalMultiSelect) {
-            $result[""] = array("value"=>$this->internalEmptyDescription, "selected" => 0);
+        // set sorting by key (default) or value
+        if ($this->internalSortByValue) {
+            natcasesort($this->internalOptionList);
+        } else {
+            ksort($this->internalOptionList);
         }
-
-        $options = explode(',', $this->internalValue);
-        foreach ($this->internalOptionList as $optKey => $optValue) {
-            if (in_array($optKey, $options)) {
-                $selected = 1;
-            } else {
-                $selected = 0;
-            }
-            $result[$optKey] = array("value"=>$optValue, "selected" => $selected);
-        }
-        // sort keys
-        ksort($result);
-        return $result;
+        return parent::getNodeData();
     }
 
-
-    /**
-     * retrieve field validators for this field type
-     * @return array returns InclusionIn validator
-     */
-    public function getValidators()
-    {
-        $validators = parent::getValidators();
-        if ($this->internalValue != null) {
-            if ($this->internalMultiSelect) {
-                // field may contain more than one value
-                $validators[] = new CsvListValidator(array('message' => $this->internalValidationMessage,
-                    'domain'=>array_keys($this->internalOptionList)));
-            } else {
-                // single value selection
-                $validators[] = new InclusionIn(array('message' => $this->internalValidationMessage,
-                    'domain'=>array_keys($this->internalOptionList)));
-            }
-        }
-        return $validators;
-    }
 }

@@ -94,9 +94,12 @@ class Voucher extends Base implements IAuthConnector
         $db_path = '/conf/vouchers_' . $this->refid . '.db';
         $this->dbHandle = new \SQLite3($db_path);
         $this->dbHandle->busyTimeout(30000);
-        $results = $this->dbHandle->query('select count(*) cnt from sqlite_master');
-        $row = $results->fetchArray();
-        if ($row['cnt'] == 0) {
+        $results = $this->dbHandle->query("PRAGMA table_info('vouchers')");
+        $known_fields = array();
+        while ($row = $results->fetchArray(SQLITE3_ASSOC)) {
+            $known_fields[] = $row['name'];
+        }
+        if (count($known_fields) == 0) {
             // new database, setup
             $sql_create = "
                 create table vouchers (
@@ -105,12 +108,18 @@ class Voucher extends Base implements IAuthConnector
                     , vouchergroup  varchar2  -- group of vouchers
                     , validity      integer   -- voucher credits
                     , starttime     integer   -- voucher start at
+                    , expirytime    integer   -- voucher valid until - '0' = disabled
                     , vouchertype   varchar2  -- (not implemented) voucher type
                     , primary key (username)
                 );
                 create index idx_voucher_group on vouchers(vouchergroup);
             ";
             $this->dbHandle->exec($sql_create);
+        } elseif (count($known_fields) < 7) {
+            // changed database, add columns when voucher table is incomplete
+            if (!in_array("expirytime", $known_fields)) {
+                $this->dbHandle->exec("alter table vouchers add expirytime integer default 0");
+            }
         }
     }
 
@@ -177,9 +186,10 @@ class Voucher extends Base implements IAuthConnector
      * @param int $count number of vouchers to generate
      * @param int $validity time (in seconds)
      * @param int $starttime valid from
+     * @param int $expirytime valid until ('0' means no expiry time)
      * @return array list of generated vouchers
      */
-    public function generateVouchers($vouchergroup, $count, $validity, $starttime = null)
+    public function generateVouchers($vouchergroup, $count, $validity, $expirytime, $starttime = null)
     {
         $response = array();
         if ($this->dbHandle != null) {
@@ -190,8 +200,10 @@ class Voucher extends Base implements IAuthConnector
                     $random_bytes = openssl_random_pseudo_bytes(10000);
                     for ($i = 0; $i < strlen($random_bytes); $i++) {
                         $chr_ord = ord($random_bytes[$i]);
-                        if (($chr_ord >= 50 && $chr_ord <= 57) || // 2..9
-                            ($chr_ord >= 65 && $chr_ord <= 78) || // A..N
+                        if (
+                            ($chr_ord >= 50 && $chr_ord <= 57) || // 2..9
+                            ($chr_ord >= 65 && $chr_ord <= 72) || // A..H
+                            ($chr_ord >= 74 && $chr_ord <= 78) || // J..N
                             ($chr_ord >= 80 && $chr_ord <= 90) || // P..Z
                             ($chr_ord >= 97 && $chr_ord <= 107) || // a..k
                             ($chr_ord >= 109 && $chr_ord <= 110) || // m..n
@@ -220,15 +232,16 @@ class Voucher extends Base implements IAuthConnector
 
             // generate new vouchers
             $vouchersGenerated = 0;
+            $expirytime = $expirytime == 0 ? 0 : $expirytime + time();
             while ($vouchersGenerated < $count) {
                 $generatedUsername = '';
                 $random_bytes = openssl_random_pseudo_bytes($this->usernameLength);
-                for ($j=0; $j < strlen($random_bytes); $j++) {
+                for ($j = 0; $j < strlen($random_bytes); $j++) {
                     $generatedUsername .= $characterMap[ord($random_bytes[$j])];
                 }
                 $generatedPassword = '';
                 $random_bytes = openssl_random_pseudo_bytes($this->passwordLength);
-                for ($j=0; $j < strlen($random_bytes); $j++) {
+                for ($j = 0; $j < strlen($random_bytes); $j++) {
                     $generatedPassword .= $characterMap[ord($random_bytes[$j])];
                 }
 
@@ -237,13 +250,14 @@ class Voucher extends Base implements IAuthConnector
                     // save user, hash password first
                     $generatedPasswordHash = crypt($generatedPassword, '$6$');
                     $stmt = $this->dbHandle->prepare('
-                                insert into vouchers(username, password, vouchergroup, validity, starttime)
-                                values (:username, :password, :vouchergroup, :validity, :starttime)
+                                insert into vouchers(username, password, vouchergroup, validity, expirytime, starttime)
+                                values (:username, :password, :vouchergroup, :validity, :expirytime, :starttime)
                                 ');
                     $stmt->bindParam(':username', $generatedUsername);
                     $stmt->bindParam(':password', $generatedPasswordHash);
                     $stmt->bindParam(':vouchergroup', $vouchergroup);
                     $stmt->bindParam(':validity', $validity);
+                    $stmt->bindParam(':expirytime', $expirytime);
                     $stmt->bindParam(':starttime', $starttime);
                     $stmt->execute();
 
@@ -251,6 +265,7 @@ class Voucher extends Base implements IAuthConnector
                         'password' => $generatedPassword,
                         'vouchergroup' => $vouchergroup,
                         'validity' => $validity,
+                        'expirytime' => $expirytime,
                         'starttime' => $starttime
                     );
                     $response[] = $row;
@@ -299,7 +314,7 @@ class Voucher extends Base implements IAuthConnector
     {
         $response = array();
         $stmt = $this->dbHandle->prepare('
-                  select username, validity, starttime, vouchergroup
+                  select username, validity, expirytime, starttime, vouchergroup
                   from vouchers
                   where vouchergroup = :vouchergroup');
         $stmt->bindParam(':vouchergroup', $vouchergroup);
@@ -308,11 +323,14 @@ class Voucher extends Base implements IAuthConnector
             $record = array();
             $record['username'] = $row['username'];
             $record['validity'] = $row['validity'];
+            $record['expirytime'] = $row['expirytime'];
             # always calculate a starttime, if not registered yet, use now.
             $record['starttime'] = empty($row['starttime']) ? time() : $row['starttime'];
             $record['endtime'] = $record['starttime'] + $row['validity'];
 
-            if (empty($row['starttime'])) {
+            if ($record['expirytime'] > 0 && time() > $record['expirytime']) {
+                $record['state'] = 'expired';
+            } elseif (empty($row['starttime'])) {
                 $record['state'] = 'unused';
             } elseif (time() < $record['endtime']) {
                 $record['state'] = 'valid';
@@ -356,9 +374,11 @@ class Voucher extends Base implements IAuthConnector
                   delete
                   from vouchers
                   where vouchergroup = :vouchergroup
-                  and starttime is not null
-                  and starttime + validity < :endtime
-                  ');
+                  and (
+                      (starttime is not null and starttime + validity < :endtime)
+                      or
+                      (expirytime > 0 and expirytime < :endtime)
+                  )');
         $stmt->bindParam(':vouchergroup', $vouchergroup);
         $endtime = time();
         $stmt->bindParam(':endtime', $endtime, SQLITE3_INTEGER);
@@ -385,7 +405,7 @@ class Voucher extends Base implements IAuthConnector
     public function authenticate($username, $password)
     {
         $stmt = $this->dbHandle->prepare('
-            select username, password,validity, starttime
+            select username, password, validity, expirytime, starttime
             from vouchers
             where username = :username
          ');
@@ -401,8 +421,15 @@ class Voucher extends Base implements IAuthConnector
                     $row['starttime'] = time();
                     $this->setStartTime($username, $row['starttime']);
                 }
-                if (time() - $row['starttime'] < $row['validity']) {
-                    $this->lastAuthProperties['session_timeout'] = $row['validity'] - (time() - $row['starttime']);
+                $is_never_expire = $row['expirytime'] === 0;
+                $is_not_expired = $row['expirytime'] > 0 && $row['expirytime'] > time();
+                $is_valid = time() - $row['starttime'] < $row['validity'];
+                if (($is_never_expire || $is_not_expired) && $is_valid) {
+                    $this->lastAuthProperties['session_timeout'] = min(
+                        // use PHP_INT_MAX as "never expire" for session_timeout
+                        $row['validity'] - (time() - $row['starttime']),
+                        $row['expirytime'] > 0 ? $row['expirytime'] - time() : PHP_INT_MAX
+                    );
                     return true;
                 }
             }
